@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Suppress benign Vite WebSocket/HMR disconnect errors in iframe preview environment
+      window.addEventListener('error', function(e) {
+        if (e.message && (e.message.includes('WebSocket') || e.message.includes('closed without opened'))) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          return true;
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        if (e.reason && (String(e.reason).includes('WebSocket') || String(e.reason?.message).includes('WebSocket') || String(e.reason?.message).includes('closed without opened'))) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+        }
+      }, true);
+    </script>
+    <title>SOVEREIGN FORENSIC ENGINE | منصة التحليل الجنائي السيادي</title>
+    <meta name="description" content="منصة متقدمة للتحليل الجنائي الرقمي، تحليل البيانات الثنائية، كشف التلاعب في الصور، وفحص التهديدات الأمنية للمحترفين." />
+    <meta name="theme-color" content="#0b0f19" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SOVEREIGN" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <script type="module" crossorigin src="./assets/index-CgMJklIj.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BGClZTF4.css">
+  <link rel="manifest" href="./manifest.webmanifest"></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+

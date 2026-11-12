@@ -533,15 +533,41 @@ export default function App() {
     if (!user) return;
     setStatsLoading(true);
     try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/dashboard-stats', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setDashboardStats(data);
+      let loaded = false;
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/dashboard-stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDashboardStats(data);
+          loaded = true;
+        }
+      } catch (fetchErr) {
+        console.warn('Backend API not available, falling back to client-side Firestore:', fetchErr);
+      }
+
+      if (!loaded) {
+        // Fallback calculation directly from client Firestore SDK (for GitHub Pages static hosting)
+        const invSnap = await getDocs(query(collection(db, 'investigations'), where('userId', '==', user.uid)));
+        const evSnap = await getDocs(query(collection(db, 'evidence'), where('userId', '==', user.uid)));
+        const auditSnap = await getDocs(query(collection(db, 'audit_logs'), where('userId', '==', user.uid)));
+        let threats = 0;
+        evSnap.forEach(d => {
+          const val = d.data();
+          if (val.analysis?.authenticityScore < 50) threats++;
+        });
+        setDashboardStats({
+          totalInvestigations: invSnap.size,
+          totalEvidence: evSnap.size,
+          totalLogs: auditSnap.size,
+          detectedThreats: threats,
+          lastUpdated: new Date().toISOString()
+        });
+      }
     } catch (err) {
       console.error('Error fetching stats:', err);
-      // Backend routes don't necessarily use handleFirestoreError, but we catch it here.
     } finally {
       setStatsLoading(false);
     }
