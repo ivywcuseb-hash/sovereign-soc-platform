@@ -230,7 +230,13 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
+    const vite = await createViteServer({ 
+      server: { 
+        middlewareMode: true,
+        hmr: false 
+      }, 
+      appType: 'spa' 
+    });
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));

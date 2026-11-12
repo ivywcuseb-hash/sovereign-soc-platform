@@ -6,6 +6,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: './',
     plugins: [
       react(),
       tailwindcss(),
@@ -17,30 +18,30 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
         },
         manifest: {
-          id: '/',
+          id: './',
           name: 'SOVEREIGN FORENSIC ENGINE v2.5',
           short_name: 'SOVEREIGN',
           description: 'منصة جنائية رقمية متكاملة للتحقيق في الأدلة الرقمية وفحص تزييف الصور.',
           theme_color: '#0b0f19',
           background_color: '#0b0f19',
           display: 'standalone',
-          start_url: '/',
-          scope: '/',
+          start_url: './',
+          scope: './',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any'
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any'
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable'
