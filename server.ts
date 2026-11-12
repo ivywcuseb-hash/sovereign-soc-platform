@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import { initializeApp, cert, getApps, App as FirebaseApp } from 'firebase-admin/app';
+import { initializeApp, cert, getApps, type App as FirebaseApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
@@ -243,9 +243,12 @@ async function startServer() {
     app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
   }
 
-  // In AI Studio, the application dev server must strictly listen on port 3000 on 0.0.0.0
+  // In production Cloud Run, process.env.PORT is passed (e.g. 8080); in dev mode, default to 3000
   const portArgIndex = process.argv.indexOf('--port');
-  const port = portArgIndex !== -1 ? parseInt(process.argv[portArgIndex + 1], 10) : 3000;
+  const port = process.env.NODE_ENV === 'production'
+    ? (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000)
+    : (portArgIndex !== -1 ? parseInt(process.argv[portArgIndex + 1], 10) : 3000);
+
   app.listen(port, '0.0.0.0', () => console.log(`Server running on http://0.0.0.0:${port}`));
 }
 
