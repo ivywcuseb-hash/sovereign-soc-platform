@@ -1,0 +1,6 @@
+{
+  "name": "SOVEREIGN FORENSIC ENGINE v2.5",
+  "description": "منصة جنائية رقمية متكاملة للتحقيق في الأدلة الرقمية، فحص تزييف الصور، وتحليل الميتاداتا والـ ELA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

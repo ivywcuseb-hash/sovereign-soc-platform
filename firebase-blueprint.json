@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "Evidence": {
+      "title": "Evidence",
+      "description": "Digital evidence file and its forensic metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "investigationId": { "type": "string", "maxLength": 128 },
+        "fileName": { "type": "string", "maxLength": 256 },
+        "mimeType": { "type": "string", "maxLength": 128 },
+        "fileSize": { "type": "number" },
+        "storagePath": { "type": "string", "maxLength": 512 },
+        "downloadUrl": { "type": "string", "maxLength": 1024 },
+        "sha256": { "type": "string", "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "sha1": { "type": "string", "maxLength": 40 },
+        "md5": { "type": "string", "maxLength": 32 },
+        "exif": { "type": "object" },
+        "analysis": {
+          "type": "object",
+          "properties": {
+            "authenticityScore": { "type": "number" },
+            "laplacianVariance": { "type": "number" },
+            "riskLevel": { "type": "string" },
+            "verdict": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "id", "userId", "investigationId", "fileName", "sha256", "createdAt" ]
+    },
+    "Investigation": {
+      "title": "Investigation",
+      "description": "A forensic investigation case container",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 1024 },
+        "status": { "type": "string", "enum": ["active", "closed", "archived"] },
+        "caseNumber": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "id", "userId", "title", "status", "createdAt" ]
+    },
+    "ChainOfCustody": {
+      "title": "ChainOfCustody",
+      "description": "Evidence handling history tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "evidenceId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string" },
+        "location": { "type": "string" },
+        "notes": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "id", "evidenceId", "userId", "action", "timestamp" ]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System-wide activity log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "targetType": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "id", "userId", "action", "timestamp" ]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account and preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["analyst", "admin"] },
+        "settings": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "uid", "email" ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Primary user documents"
+    },
+    "/investigations/{investigationId}": {
+      "schema": "Investigation",
+      "description": "Investigations collection"
+    },
+    "/evidence/{evidenceId}": {
+      "schema": "Evidence",
+      "description": "Central evidence registry"
+    },
+    "/evidence/{evidenceId}/chain_of_custody/{entryId}": {
+      "schema": "ChainOfCustody",
+      "description": "History of evidence handling"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Activity logs"
+    }
+  }
+}
