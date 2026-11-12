@@ -406,6 +406,7 @@ export default function App() {
     if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
     if (code === 'auth/email-already-in-use') return 'هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.';
     if (code === 'auth/weak-password') return 'كلمة المرور ضعيفة جداً (يجب أن لا تقل عن 6 أحرف).';
+    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول هذا غير مفعل حالياً في Firebase Console (Sign-in method).';
     if (code === 'auth/network-request-failed') return 'تعذر الاتصال بخوادم المصادقة. تحقق من اتصال الإنترنت.';
     return msg || fallback;
   };
@@ -1775,7 +1776,7 @@ export default function App() {
                   >
                     {authLoading ? 'جاري الإرسال...' : 'إرسال رابط الاستعادة'}
                   </button>
-                  <button type="button" onClick={() => setAuthMode('login')} className="w-full text-xs text-gray-500 hover:text-white transition">العودة لتسجيل الدخول</button>
+                  <button type="button" onClick={() => { setAuthMode('login'); setAuthError(null); setUnauthorizedDomain(null); }} className="w-full text-xs text-gray-500 hover:text-white transition">العودة لتسجيل الدخول</button>
                 </form>
               ) : (
                 <form onSubmit={handleEmailAuth} className="space-y-5">
@@ -1807,7 +1808,7 @@ export default function App() {
                     <div className="flex justify-between items-center px-1">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">كلمة المرور</label>
                       {authMode === 'login' && (
-                        <button type="button" onClick={() => setAuthMode('reset')} className="text-[10px] text-[#D4AF37] hover:underline">نسيت كلمة المرور؟</button>
+                        <button type="button" onClick={() => { setAuthMode('reset'); setAuthError(null); setUnauthorizedDomain(null); }} className="text-[10px] text-[#D4AF37] hover:underline">نسيت كلمة المرور؟</button>
                       )}
                     </div>
                     <input 
@@ -1895,7 +1896,7 @@ export default function App() {
               <p className="text-sm text-gray-500">
                 {authMode === 'login' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
                 <button 
-                  onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(null); }} 
+                  onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(null); setUnauthorizedDomain(null); }} 
                   className="mr-2 text-[#D4AF37] font-bold hover:underline"
                 >
                   {authMode === 'login' ? 'سجل الآن كخبير' : 'قم بتسجيل الدخول'}
