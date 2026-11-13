@@ -215,8 +215,6 @@ export default function App() {
   const [authName, setAuthName] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
-  const [copiedDomain, setCopiedDomain] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
@@ -395,18 +393,12 @@ export default function App() {
   const formatAuthError = (err: any, fallback: string) => {
     const code = err?.code || '';
     const msg = err?.message || '';
-    if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
-      const host = typeof window !== 'undefined' ? window.location.hostname : 'ivywcuseb-hash.github.io';
-      setUnauthorizedDomain(host);
-      return `النطاق الحالي (${host}) غير مضاف في قائمة النطاقات المصرح بها في Firebase لتسجيل الدخول عبر Google.`;
-    }
-    setUnauthorizedDomain(null);
-    if (code === 'auth/popup-blocked') return 'المتصفح منع فتح نافذة تسجيل الدخول. يرجى السماح بالنوافذ المنبثقة (Popups) أو تسجيل الدخول بالبريد وكلمة المرور.';
+    if (code === 'auth/popup-blocked') return 'المتصفح منع فتح نافذة تسجيل الدخول. يرجى السماح بالنوافذ المنبثقة (Popups).';
     if (code === 'auth/popup-closed-by-user') return 'تم إغلاق نافذة تسجيل الدخول قبل إتمام العملية.';
     if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
     if (code === 'auth/email-already-in-use') return 'هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.';
     if (code === 'auth/weak-password') return 'كلمة المرور ضعيفة جداً (يجب أن لا تقل عن 6 أحرف).';
-    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول هذا غير مفعل حالياً في Firebase Console (Sign-in method).';
+    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول هذا غير مفعل حالياً في إعدادات Firebase.';
     if (code === 'auth/network-request-failed') return 'تعذر الاتصال بخوادم المصادقة. تحقق من اتصال الإنترنت.';
     return msg || fallback;
   };
@@ -415,7 +407,6 @@ export default function App() {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError(null);
-    setUnauthorizedDomain(null);
     try {
       if (authMode === 'signup') {
         const cred = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
@@ -437,7 +428,6 @@ export default function App() {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError(null);
-    setUnauthorizedDomain(null);
     try {
       await sendPasswordResetEmail(auth, authEmail);
       setResetSent(true);
@@ -451,7 +441,6 @@ export default function App() {
   const handleGoogleSignIn = async () => {
     setAuthLoading(true);
     setAuthError(null);
-    setUnauthorizedDomain(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
@@ -1776,7 +1765,7 @@ export default function App() {
                   >
                     {authLoading ? 'جاري الإرسال...' : 'إرسال رابط الاستعادة'}
                   </button>
-                  <button type="button" onClick={() => { setAuthMode('login'); setAuthError(null); setUnauthorizedDomain(null); }} className="w-full text-xs text-gray-500 hover:text-white transition">العودة لتسجيل الدخول</button>
+                  <button type="button" onClick={() => { setAuthMode('login'); setAuthError(null); }} className="w-full text-xs text-gray-500 hover:text-white transition">العودة لتسجيل الدخول</button>
                 </form>
               ) : (
                 <form onSubmit={handleEmailAuth} className="space-y-5">
@@ -1808,7 +1797,7 @@ export default function App() {
                     <div className="flex justify-between items-center px-1">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">كلمة المرور</label>
                       {authMode === 'login' && (
-                        <button type="button" onClick={() => { setAuthMode('reset'); setAuthError(null); setUnauthorizedDomain(null); }} className="text-[10px] text-[#D4AF37] hover:underline">نسيت كلمة المرور؟</button>
+                        <button type="button" onClick={() => { setAuthMode('reset'); setAuthError(null); }} className="text-[10px] text-[#D4AF37] hover:underline">نسيت كلمة المرور؟</button>
                       )}
                     </div>
                     <input 
@@ -1822,47 +1811,8 @@ export default function App() {
                   </div>
 
                   {authError && (
-                    <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 space-y-2.5 leading-relaxed">
-                      <div className="flex items-start gap-2 font-bold text-red-400">
-                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{authError}</span>
-                      </div>
-                      {unauthorizedDomain && (
-                        <div className="bg-gray-950/90 border border-gray-800 rounded-lg p-3 space-y-2 text-[11px] text-gray-300">
-                          <div className="font-bold text-[#D4AF37]">لحل المشكلة نهائياً (مرة واحدة فقط):</div>
-                          <ol className="list-decimal list-inside space-y-1 text-gray-400">
-                            <li>افتح إعدادات المصادقة في Firebase Console للمشروع.</li>
-                            <li>انتقل إلى <span className="text-white font-mono">Settings → Authorized domains</span> ثم اضغط <span className="text-white font-mono">Add domain</span>.</li>
-                            <li>أضف هذا النطاق ثم احفظ:</li>
-                          </ol>
-                          <div className="flex items-center justify-between gap-2 bg-gray-900 px-2.5 py-1.5 rounded border border-gray-700 font-mono text-emerald-400">
-                            <span className="truncate select-all" dir="ltr">{unauthorizedDomain}</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(unauthorizedDomain);
-                                setCopiedDomain(true);
-                                setTimeout(() => setCopiedDomain(false), 2000);
-                              }}
-                              className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded text-[10px] shrink-0 flex items-center gap-1"
-                            >
-                              {copiedDomain ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                              <span>{copiedDomain ? 'تم النسخ' : 'نسخ'}</span>
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                            <a
-                              href="https://console.firebase.google.com/project/gen-lang-client-0056156079/authentication/settings"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#D4AF37] hover:underline"
-                            >
-                              فتح إعدادات Firebase Auth ↗
-                            </a>
-                            <span className="text-[10px] text-emerald-400">أو يمكنك الدخول الآن بالبريد وكلمة المرور أعلاه.</span>
-                          </div>
-                        </div>
-                      )}
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] text-red-400 font-mono">
+                      {authError}
                     </div>
                   )}
 
@@ -1896,7 +1846,7 @@ export default function App() {
               <p className="text-sm text-gray-500">
                 {authMode === 'login' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
                 <button 
-                  onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(null); setUnauthorizedDomain(null); }} 
+                  onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(null); }} 
                   className="mr-2 text-[#D4AF37] font-bold hover:underline"
                 >
                   {authMode === 'login' ? 'سجل الآن كخبير' : 'قم بتسجيل الدخول'}
