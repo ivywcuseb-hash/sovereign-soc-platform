@@ -54,9 +54,12 @@
         "id": { "type": "string", "maxLength": 128 },
         "evidenceId": { "type": "string", "maxLength": 128 },
         "userId": { "type": "string", "maxLength": 128 },
+        "officerName": { "type": "string", "maxLength": 128 },
         "action": { "type": "string" },
         "location": { "type": "string" },
         "notes": { "type": "string" },
+        "prevHash": { "type": "string", "maxLength": 64 },
+        "recordHash": { "type": "string", "maxLength": 64 },
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": [ "id", "evidenceId", "userId", "action", "timestamp" ]
