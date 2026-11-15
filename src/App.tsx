@@ -153,7 +153,9 @@ import {
   db, 
   storage, 
   googleProvider, 
+  firebaseConfig,
   signInWithPopup, 
+  signInWithRedirect,
   signOut, 
   handleFirestoreError, 
   OperationType,
@@ -657,6 +659,8 @@ export default function App() {
   const [authName, setAuthName] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
+  const [showEmailCloudSync, setShowEmailCloudSync] = useState<boolean>(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
@@ -1605,11 +1609,30 @@ export default function App() {
   const handleGoogleSignIn = async () => {
     setAuthLoading(true);
     setAuthError(null);
+    setUnauthorizedDomainHost(null);
     try {
       await signInWithPopup(auth, googleProvider);
       notifyStatus('تم ربط حسابك وتفعيل المزامنة المباشرة مع قاعدة بيانات Firestore.', 'success');
     } catch (err: any) {
       console.error('Google Sign In Error:', err);
+      if (err?.code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          const rMsg = formatAuthError(redirectErr, 'تعذر فتح نافذة تسجيل الدخول.');
+          setAuthError(rMsg);
+          notifyStatus(rMsg, 'warning');
+          return;
+        }
+      }
+      if (err?.code === 'auth/unauthorized-domain') {
+        const host = window.location.hostname || 'github.io';
+        setUnauthorizedDomainHost(host);
+        setActiveTab('profile');
+        notifyStatus(`لتفعيل Google Sync على (${host}) أضفه في Firebase Authorized Domains — المختبرات المحلية تعمل بالكامل.`, 'warning');
+        return;
+      }
       const msg = formatAuthError(err, 'تعذر تسجيل الدخول عبر Google.');
       setAuthError(msg);
       notifyStatus(msg, 'warning');
@@ -5555,7 +5578,7 @@ export default function App() {
       data-sovereign-theme={uiPrefs.themePreset}
       data-sovereign-layout={uiPrefs.layoutStructure}
       data-sovereign-density={uiPrefs.density}
-      className="sovereign-shell min-h-screen pb-10 bg-[#0b0f19] text-gray-100 flex flex-col font-sans selection:bg-[#D4AF37]/30 selection:text-[#D4AF37]"
+      className="sovereign-shell min-h-screen pb-12 bg-[#0b0f19] text-gray-100 flex flex-col font-sans overflow-x-hidden selection:bg-[#D4AF37]/30 selection:text-[#D4AF37]"
     >
       {/* Site Update Prompt / Notification Banner */}
       <UpdateBanner 
@@ -5568,24 +5591,24 @@ export default function App() {
       />
 
       {/* Top Sovereign System Bar with Real Device Telemetry & Firebase Auth */}
-      <header className={`sticky top-0 z-50 flex items-center justify-between gap-3 px-4 md:px-6 ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'py-2' : 'py-3'} bg-[#0b0f19]/95 backdrop-blur-md border-b border-gray-800`}>
-        <div className="flex items-center gap-3 whitespace-nowrap shrink-0">
+      <header className={`sticky top-0 z-50 flex items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-4 md:px-6 ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'py-2' : 'py-2.5 sm:py-3'} bg-[#0b0f19]/95 backdrop-blur-md border-b border-gray-800 max-w-full`}>
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 xl:flex-none">
           {isSidebarMode && (
             <button
               type="button"
               onClick={() => setMobileSidebarOpen((v) => !v)}
-              className="lg:hidden p-2 rounded-xl bg-gray-900 border border-gray-800 text-[#D4AF37] hover:bg-gray-800 transition cursor-pointer"
+              className="lg:hidden p-1.5 sm:p-2 rounded-xl bg-gray-900 border border-gray-800 text-[#D4AF37] hover:bg-gray-800 transition cursor-pointer shrink-0"
               aria-label="فتح القائمة الجانبية"
             >
               <Menu className="w-4 h-4" />
             </button>
           )}
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-lg shadow-[#D4AF37]/20">
-            <Shield className="w-5 h-5 text-gray-950 font-bold" />
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-lg shadow-[#D4AF37]/20 shrink-0">
+            <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-gray-950 font-bold" />
           </div>
-          <div>
-            <span className="text-base font-bold tracking-tight text-white block">SOVEREIGN FORENSIC ENGINE</span>
-            <span className="text-[9px] text-[#D4AF37] font-mono tracking-widest uppercase block">Core Engine v3.5 • Neural-X Security Daemon</span>
+          <div className="min-w-0">
+            <span className="text-xs sm:text-base font-bold tracking-tight text-white block truncate">SOVEREIGN FORENSIC ENGINE</span>
+            <span className="hidden sm:block text-[9px] text-[#D4AF37] font-mono tracking-widest uppercase truncate">Core Engine v3.5 • Neural-X Security Daemon</span>
           </div>
         </div>
 
@@ -5676,17 +5699,17 @@ export default function App() {
         )}
 
         {/* Real Device Telemetry, UI Customizer & Firebase Auth Widget */}
-        <div className="flex items-center gap-2 text-xs font-mono shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 text-xs font-mono shrink-0">
           {/* Dynamic Layout & UI Customizer + Instant Procedural Randomizer */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setShowLayoutCustomizer(true)}
               title="فتح مُخصِّص الواجهة والهيكل الديناميكي (+540 ثيم)"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
             >
               <Sliders className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-[11px]">تخصيص الهيكل والواجهة</span>
+              <span className="hidden md:inline text-[11px]">تخصيص الهيكل والواجهة</span>
             </button>
             <button
               type="button"
@@ -5699,7 +5722,7 @@ export default function App() {
                 notifyStatus(`تم تطبيق الثيم الإجرائي #${picked.id.toUpperCase()}: ${picked.nameAr}`, 'success');
               }}
               title="تغيير عشوائي حقيقي فوري من +540 ثيم (Instant Theme Generator)"
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-900/90 hover:bg-gray-800 text-[#D4AF37] border border-[#D4AF37]/40 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 bg-gray-900/90 hover:bg-gray-800 text-[#D4AF37] border border-[#D4AF37]/40 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
             >
               <Dices className="w-3.5 h-3.5" />
               <span className="hidden xl:inline text-[10px]">ثيم عشوائي</span>
@@ -5720,7 +5743,7 @@ export default function App() {
               onClick={handleGoogleSignIn}
               disabled={authLoading}
               title="ربط حساب Google لحفظ الأدلة وسلاسل الحيازة في قاعدة بيانات Firestore"
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-[#D4AF37] border border-[#D4AF37]/40 rounded-lg font-sans font-bold transition cursor-pointer"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-[#D4AF37] border border-[#D4AF37]/40 rounded-lg font-sans font-bold transition cursor-pointer"
             >
               <CloudOff className="w-3.5 h-3.5" />
               <span className="hidden lg:inline text-[10px]">مزامنة Firestore</span>
@@ -5731,7 +5754,7 @@ export default function App() {
           <button
             onClick={() => setIsLocked(true)}
             title="قفل الطوارئ الفوري (Panic Lock)"
-            className="flex items-center gap-1 px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition font-bold cursor-pointer"
+            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition font-bold cursor-pointer"
           >
             <ShieldAlert className="w-3.5 h-3.5" />
             <span className="hidden 2xl:inline text-[10px]">قفل طوارئ</span>
@@ -5767,14 +5790,14 @@ export default function App() {
           {user ? (
             <button 
               onClick={() => handleSelectTab('profile')}
-              className="flex items-center gap-2 bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-800 hover:border-[#D4AF37] transition group cursor-pointer"
+              className="flex items-center gap-1.5 sm:gap-2 bg-gray-900 px-2 sm:px-3 py-1.5 rounded-lg border border-gray-800 hover:border-[#D4AF37] transition group cursor-pointer"
             >
               {userProfile?.photoURL ? (
                 <img src={userProfile.photoURL} alt="Avatar" className="w-5 h-5 rounded-full object-cover" />
               ) : (
                 <UserIcon className="w-3.5 h-3.5 text-gray-400 group-hover:text-[#D4AF37]" />
               )}
-              <span className="hidden sm:inline text-white font-medium truncate max-w-[110px]">{userProfile?.displayName || user.email}</span>
+              <span className="hidden sm:inline text-white font-medium truncate max-w-[90px] sm:max-w-[110px]">{userProfile?.displayName || user.email}</span>
             </button>
           ) : (
             <div className="flex items-center gap-2">
@@ -5913,9 +5936,8 @@ export default function App() {
         }`}
       >
         
-        {/* Mobile Nav (shown in Top, Compact, Full-Width & Multi-Grid modes) */}
-        {!isSidebarMode && (
-          <div className="flex xl:hidden overflow-x-auto gap-2 pb-2 border-b border-gray-800">
+        {/* Mobile Nav (always accessible on mobile/tablet even in sidebar mode) */}
+        <div className={`flex ${isSidebarMode ? 'lg:hidden' : 'xl:hidden'} overflow-x-auto gap-2 pb-2 border-b border-gray-800`}>
             <button onClick={() => handleSelectTab('dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الرئيسية</button>
             <button onClick={() => handleSelectTab('analyzer')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('analyzer') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التحليل</button>
             <button onClick={() => handleSelectTab('evidence')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('evidence') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الأدلة</button>
@@ -5937,7 +5959,6 @@ export default function App() {
             <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
             <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
           </div>
-        )}
 
         {/* Multi-Panel Dashboard Grid Workspace Controller Bar */}
         {uiPrefs.layoutStructure === 'multi_grid' && user && (
@@ -9046,14 +9067,103 @@ export default function App() {
                     </div>
                     <div className="pt-4 border-t border-gray-800 space-y-3">
                       {!isCloudAuthenticated ? (
-                        <button 
-                          onClick={handleGoogleSignIn}
-                          disabled={authLoading}
-                          className="w-full py-2.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                        >
-                          <Cloud className="w-4 h-4" />
-                          {authLoading ? 'جاري الربط...' : 'تسجيل الدخول عبر Google لمزامنة السحابة'}
-                        </button>
+                        <div className="space-y-3">
+                          <button 
+                            onClick={handleGoogleSignIn}
+                            disabled={authLoading}
+                            className="w-full py-2.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                          >
+                            <Cloud className="w-4 h-4" />
+                            {authLoading ? 'جاري الربط...' : 'تسجيل الدخول عبر Google لمزامنة السحابة'}
+                          </button>
+
+                          {unauthorizedDomainHost && (
+                            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-[#D4AF37]/50 text-right space-y-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="text-[11px] font-bold text-[#D4AF37]">
+                                  تفعيل Google Auth لهذا النطاق في Firebase
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setUnauthorizedDomainHost(null)}
+                                  className="text-gray-400 hover:text-white text-xs cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-gray-300 leading-relaxed">
+                                جميع مختبرات الفحص المحلية تعمل 100% حالياً. لتفعيل المزامنة عبر Google على هذا الرابط، أضف النطاق التالي في <span className="font-mono text-white">Firebase Console → Authentication → Settings → Authorized domains</span>:
+                              </p>
+                              <div className="flex items-center justify-between gap-2 bg-gray-950 px-2.5 py-1.5 rounded-lg border border-gray-800">
+                                <span dir="ltr" className="font-mono text-[11px] text-emerald-400 truncate">
+                                  {unauthorizedDomainHost}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(unauthorizedDomainHost);
+                                    notifyStatus(`تم نسخ النطاق: ${unauthorizedDomainHost}`, 'success');
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-white shrink-0 cursor-pointer"
+                                >
+                                  نسخ النطاق
+                                </button>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 text-[10px] text-gray-400 font-mono">
+                                <span dir="ltr">Project: {firebaseConfig.projectId}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowEmailCloudSync((v) => !v)}
+                                  className="text-[#D4AF37] hover:underline font-sans font-bold cursor-pointer"
+                                >
+                                  {showEmailCloudSync ? 'إخفاء دخول البريد' : 'أو الدخول بالبريد وكلمة المرور'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {showEmailCloudSync && (
+                            <form onSubmit={handleEmailAuth} className="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-2.5 text-right">
+                              <input
+                                type="email"
+                                value={authEmail}
+                                onChange={(e) => setAuthEmail(e.target.value)}
+                                placeholder="البريد الإلكتروني السحابي"
+                                className="w-full px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+                                required
+                              />
+                              <input
+                                type="password"
+                                value={authPassword}
+                                onChange={(e) => setAuthPassword(e.target.value)}
+                                placeholder="كلمة المرور"
+                                className="w-full px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+                                required
+                              />
+                              {authError && (
+                                <p className="text-[10px] text-red-400">{authError}</p>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  type="submit"
+                                  disabled={authLoading}
+                                  onClick={() => setAuthMode('login')}
+                                  className="flex-1 py-2 bg-[#D4AF37] text-gray-950 font-bold text-[11px] rounded-lg cursor-pointer disabled:opacity-50"
+                                >
+                                  دخول
+                                </button>
+                                <button
+                                  type="submit"
+                                  disabled={authLoading}
+                                  onClick={() => setAuthMode('signup')}
+                                  className="flex-1 py-2 bg-gray-800 text-white font-bold text-[11px] rounded-lg cursor-pointer disabled:opacity-50"
+                                >
+                                  حساب جديد
+                                </button>
+                              </div>
+                            </form>
+                          )}
+                        </div>
                       ) : (
                         <>
                           <button 
@@ -14043,7 +14153,7 @@ export default function App() {
 
       {/* Floating System & Forensic Status Toast */}
       {(statusToast || update.toastMessage) && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 border text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 backdrop-blur-md ${
+        <div className={`fixed bottom-14 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] bg-gray-900/95 border text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 backdrop-blur-md ${
           statusToast?.type === 'error'
             ? 'border-red-500 text-red-200'
             : statusToast?.type === 'warning'
@@ -14051,7 +14161,17 @@ export default function App() {
             : 'border-[#D4AF37]'
         }`}>
           <CheckCircle2 className={`w-4 h-4 shrink-0 ${statusToast?.type === 'error' ? 'text-red-400' : 'text-[#D4AF37]'}`} />
-          <span>{statusToast?.message || update.toastMessage}</span>
+          <span className="leading-relaxed">{statusToast?.message || update.toastMessage}</span>
+          {statusToast && (
+            <button
+              type="button"
+              onClick={() => setStatusToast(null)}
+              className="mr-1 text-gray-400 hover:text-white shrink-0 cursor-pointer"
+              aria-label="إغلاق التنبيه"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
