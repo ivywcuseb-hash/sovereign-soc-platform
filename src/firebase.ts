@@ -11,7 +11,7 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { getStorage, uploadBytesResumable, deleteObject } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -28,7 +28,9 @@ export {
   signInWithEmailAndPassword,
   sendEmailVerification,
   sendPasswordResetEmail,
-  updateProfile
+  updateProfile,
+  uploadBytesResumable,
+  deleteObject
 };
 
 // Test connection

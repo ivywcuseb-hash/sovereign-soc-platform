@@ -35,46 +35,98 @@ export function useUpdateChecker() {
   const [dismissed, setDismissed] = useState<boolean>(false);
   const [swUpdateFunction, setSwUpdateFunction] = useState<((reloadPage?: boolean) => Promise<void>) | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [swStatus, setSwStatus] = useState<'active' | 'installing' | 'pending' | 'unsupported'>(() =>
+    typeof navigator !== 'undefined' && 'serviceWorker' in navigator ? 'pending' : 'unsupported'
+  );
+  const [swScriptUrl, setSwScriptUrl] = useState<string>('/sw.js');
 
-  // Initialize PWA Service Worker Registration
+  // Initialize PWA Service Worker Registration (/sw.js)
   useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      setSwStatus('unsupported');
+      return;
+    }
+
     let updateFn: ((reloadPage?: boolean) => Promise<void>) | null = null;
+    let updateInterval: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const syncRegistrationState = (registration: ServiceWorkerRegistration | undefined | null) => {
+      if (cancelled || !registration) return;
+      const worker = registration.active || registration.waiting || registration.installing;
+      if (worker?.scriptURL) {
+        try {
+          setSwScriptUrl(new URL(worker.scriptURL).pathname);
+        } catch {
+          setSwScriptUrl('/sw.js');
+        }
+      }
+      if (registration.active) {
+        setSwStatus('active');
+      } else if (registration.installing || registration.waiting) {
+        setSwStatus('installing');
+        worker?.addEventListener('statechange', () => {
+          if (!cancelled && registration.active) {
+            setSwStatus('active');
+          }
+        });
+      }
+    };
+
     try {
       updateFn = registerSW({
         immediate: true,
         onNeedRefresh() {
-          console.log('[PWA] New content available, refresh needed.');
           setHasUpdate(true);
           setDismissed(false);
         },
         onOfflineReady() {
-          console.log('[PWA] App is ready to work offline.');
+          setSwStatus('active');
         },
         onRegisteredSW(swUrl, registration) {
-          console.log('[PWA] Service Worker registered at:', swUrl);
+          if (swUrl) {
+            setSwScriptUrl(swUrl);
+          }
+          syncRegistrationState(registration);
           if (registration) {
-            // Check for updates periodically (every 5 minutes)
-            const interval = setInterval(() => {
-              registration.update().catch((err) => console.log('[PWA] Update check failed:', err));
+            updateInterval = setInterval(() => {
+              registration.update().catch(() => undefined);
             }, 5 * 60 * 1000);
-            return () => clearInterval(interval);
           }
         },
-        onRegisterError(error) {
-          console.error('[PWA] Service Worker registration error:', error);
+        onRegisterError() {
+          // Fallback to direct /sw.js registration below
         }
       });
       setSwUpdateFunction(() => updateFn);
-    } catch (e) {
-      console.warn('[PWA] Virtual pwa register failed or running in non-PWA context', e);
+    } catch {
+      // Fallback handled directly below
     }
 
-    // Direct listener on ServiceWorkerContainer if available
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        console.log('[SW] Controller changed. Reloading if required.');
-      });
-    }
+    // Guarantee sw.js registration for Android APK / PWA standalone readiness (works on root and GitHub Pages subpath)
+    navigator.serviceWorker
+      .getRegistration('./')
+      .then(async (existingReg) => {
+        if (existingReg) {
+          syncRegistrationState(existingReg);
+          return existingReg;
+        }
+        const directReg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+        syncRegistrationState(directReg);
+        return directReg;
+      })
+      .catch(() => undefined);
+
+    const onControllerChange = () => {
+      setSwStatus('active');
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+    return () => {
+      cancelled = true;
+      if (updateInterval) clearInterval(updateInterval);
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    };
   }, []);
 
   // Check version against backend /api/version
@@ -202,6 +254,8 @@ export function useUpdateChecker() {
     showModal,
     dismissed,
     toastMessage,
+    swStatus,
+    swScriptUrl,
     setShowModal,
     setDismissed,
     checkForUpdates,

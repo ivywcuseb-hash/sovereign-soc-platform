@@ -1,8 +1,12 @@
 node_modules/
 build/
 dist/
+dev-dist/
 coverage/
+.vercel/
+.firebase/
 .DS_Store
 *.log
+*.zip
 .env*
 !.env.example

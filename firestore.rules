@@ -51,6 +51,55 @@ service cloud.firestore {
       }
     }
 
+    function isValidCustodyBlock(data) {
+      return data.keys().hasAll(['userId', 'evidenceId', 'actionCategory', 'action', 'location', 'timestamp', 'prevHash', 'recordHash'])
+        && data.keys().hasOnly(['userId', 'evidenceId', 'actionCategory', 'action', 'officerName', 'location', 'notes', 'timestamp', 'prevHash', 'recordHash'])
+        && data.userId == request.auth.uid
+        && data.evidenceId is string && data.evidenceId.size() > 0 && data.evidenceId.size() <= 128
+        && data.actionCategory in ['EVIDENCE_UPLOAD', 'FILE_INSPECTION', 'SETTINGS_CHANGE', 'MANUAL_CUSTODY', 'REPORT_EXPORT', 'LOG_ANALYSIS', 'CASE_MANAGEMENT']
+        && data.action is string && data.action.size() > 0 && data.action.size() <= 256
+        && data.location is string && data.location.size() <= 256
+        && data.timestamp is string && data.timestamp.size() <= 64
+        && data.prevHash is string && data.prevHash.size() == 64
+        && data.recordHash is string && data.recordHash.size() == 64
+        && (!('officerName' in data) || (data.officerName is string && data.officerName.size() <= 128))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1024));
+    }
+
+    match /custody_ledger/{entryId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(entryId) && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(entryId) && isValidCustodyBlock(incoming());
+      allow update, delete: if false;
+    }
+
+    function isValidForensicReport(data) {
+      return data.keys().hasAll(['userId', 'caseNumber', 'title', 'classification', 'examinerName', 'evidenceCount', 'reportSealSha256', 'createdAt'])
+        && data.keys().hasOnly(['userId', 'investigationId', 'caseNumber', 'title', 'classification', 'examinerName', 'department', 'summary', 'evidenceCount', 'evidenceSha256List', 'iocCount', 'custodyCount', 'reportSealSha256', 'exportFormat', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.caseNumber is string && data.caseNumber.size() > 0 && data.caseNumber.size() <= 64
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 256
+        && data.classification in ['TOP_SECRET', 'CONFIDENTIAL', 'OFFICIAL']
+        && data.examinerName is string && data.examinerName.size() > 0 && data.examinerName.size() <= 128
+        && data.evidenceCount is number && data.evidenceCount >= 0 && data.evidenceCount <= 500
+        && data.reportSealSha256 is string && data.reportSealSha256.size() == 64
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && (!('investigationId' in data) || (data.investigationId is string && data.investigationId.size() <= 128))
+        && (!('department' in data) || (data.department is string && data.department.size() <= 128))
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 2048))
+        && (!('iocCount' in data) || (data.iocCount is number && data.iocCount >= 0))
+        && (!('custodyCount' in data) || (data.custodyCount is number && data.custodyCount >= 0))
+        && (!('exportFormat' in data) || (data.exportFormat is string && data.exportFormat.size() <= 32))
+        && (!('evidenceSha256List' in data) || (data.evidenceSha256List is list && data.evidenceSha256List.size() <= 100 && (data.evidenceSha256List.size() == 0 || data.evidenceSha256List[0] is string)));
+    }
+
+    match /forensic_reports/{reportId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(reportId) && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(reportId) && isValidForensicReport(incoming());
+      allow update, delete: if false;
+    }
+
     match /audit_logs/{logId} {
       allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;

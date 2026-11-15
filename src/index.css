@@ -55,4 +55,307 @@
   }
 }
 
+/* ============================================================================
+   Sovereign Dynamic Theme Engine, Layout Modes & UI Density Overrides
+   ============================================================================ */
+
+:root,
+[data-sovereign-theme="sovereign_gold"] {
+  --sov-accent: #D4AF37;
+  --sov-secondary: #10B981;
+  --sov-bg: #0b0f19;
+  --sov-surface: #111827;
+  --sov-surface-deep: #030712;
+  --sov-border: #1f2937;
+}
+
+/* 2. Cyber Matrix Green Theme */
+[data-sovereign-theme="cyber_matrix"] {
+  --sov-accent: #10f58a;
+  --sov-secondary: #34d399;
+  --sov-bg: #030b07;
+  --sov-surface: #071710;
+  --sov-surface-deep: #020805;
+  --sov-border: #113825;
+}
+
+[data-sovereign-theme="cyber_matrix"] body,
+[data-sovereign-theme="cyber_matrix"] .sovereign-shell {
+  background-color: #030b07 !important;
+  background-image: radial-gradient(rgba(16, 245, 138, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* 3. Deep Blue Intel Theme */
+[data-sovereign-theme="deep_blue"] {
+  --sov-accent: #38bdf8;
+  --sov-secondary: #60a5fa;
+  --sov-bg: #040b18;
+  --sov-surface: #0b182e;
+  --sov-surface-deep: #030814;
+  --sov-border: #172e4f;
+}
+
+[data-sovereign-theme="deep_blue"] body,
+[data-sovereign-theme="deep_blue"] .sovereign-shell {
+  background-color: #040b18 !important;
+  background-image: radial-gradient(rgba(56, 189, 248, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* 4. Crimson Cyber Red Theme */
+[data-sovereign-theme="crimson_red"] {
+  --sov-accent: #f43f5e;
+  --sov-secondary: #fb7185;
+  --sov-bg: #0e0508;
+  --sov-surface: #19090f;
+  --sov-surface-deep: #090305;
+  --sov-border: #3d1522;
+}
+
+[data-sovereign-theme="crimson_red"] body,
+[data-sovereign-theme="crimson_red"] .sovereign-shell {
+  background-color: #0e0508 !important;
+  background-image: radial-gradient(rgba(244, 63, 94, 0.07) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+/* 5. Neon Purple Hacking Theme */
+[data-sovereign-theme="neon_purple"] {
+  --sov-accent: #c084fc;
+  --sov-secondary: #e879f9;
+  --sov-bg: #080312;
+  --sov-surface: #130926;
+  --sov-surface-deep: #05020c;
+  --sov-border: #311863;
+}
+
+[data-sovereign-theme="neon_purple"] body,
+[data-sovereign-theme="neon_purple"] .sovereign-shell {
+  background-color: #080312 !important;
+  background-image:
+    linear-gradient(rgba(192, 132, 252, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(192, 132, 252, 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* 6. Midnight Carbon Theme */
+[data-sovereign-theme="midnight_carbon"] {
+  --sov-accent: #e2e8f0;
+  --sov-secondary: #94a3b8;
+  --sov-bg: #09090b;
+  --sov-surface: #121317;
+  --sov-surface-deep: #050507;
+  --sov-border: #27272a;
+}
+
+[data-sovereign-theme="midnight_carbon"] body,
+[data-sovereign-theme="midnight_carbon"] .sovereign-shell {
+  background-color: #09090b !important;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.012) 0px,
+    rgba(255, 255, 255, 0.012) 2px,
+    transparent 2px,
+    transparent 8px
+  );
+}
+
+/* 7. Minimalist Clean Dark Theme */
+[data-sovereign-theme="minimalist_dark"] {
+  --sov-accent: #60a5fa;
+  --sov-secondary: #93c5fd;
+  --sov-bg: #101216;
+  --sov-surface: #181b21;
+  --sov-surface-deep: #0c0e12;
+  --sov-border: #262b35;
+}
+
+[data-sovereign-theme="minimalist_dark"] body,
+[data-sovereign-theme="minimalist_dark"] .sovereign-shell {
+  background-color: #101216 !important;
+  background-image: none;
+}
+
+/* 8. Solar Amber Terminal Theme */
+[data-sovereign-theme="solar_amber"] {
+  --sov-accent: #f59e0b;
+  --sov-secondary: #fbbf24;
+  --sov-bg: #0c0802;
+  --sov-surface: #171004;
+  --sov-surface-deep: #070501;
+  --sov-border: #3f2a08;
+}
+
+[data-sovereign-theme="solar_amber"] body,
+[data-sovereign-theme="solar_amber"] .sovereign-shell {
+  background-color: #0c0802 !important;
+  background-image: linear-gradient(rgba(245, 158, 11, 0.03) 50%, transparent 50%);
+  background-size: 100% 4px;
+}
+
+/* 9. Procedural 540+ Themes Engine Mode */
+[data-sovereign-theme="procedural"] body,
+[data-sovereign-theme="procedural"] .sovereign-shell {
+  background-color: var(--sov-bg) !important;
+  background-image: var(--sov-bg-image, none);
+  background-size: var(--sov-bg-size, auto);
+}
+
+[data-sovereign-theme="procedural"] main .bg-gray-900,
+[data-sovereign-theme="procedural"] main .bg-gray-900\/90,
+[data-sovereign-theme="procedural"] main .bg-gray-900\/80,
+[data-sovereign-theme="procedural"] main .bg-gray-900\/70,
+[data-sovereign-theme="procedural"] main .bg-gray-900\/60,
+[data-sovereign-theme="procedural"] main .bg-gray-900\/95 {
+  backdrop-filter: var(--sov-backdrop, none);
+  -webkit-backdrop-filter: var(--sov-backdrop, none);
+  box-shadow: var(--sov-card-shadow, none);
+}
+
+[data-sovereign-theme="procedural"] main .rounded-2xl,
+[data-sovereign-theme="procedural"] main .rounded-3xl {
+  border-radius: var(--sov-radius, 1rem);
+}
+
+/* Shared Variable-Driven Mapping Across All Non-Default Themes */
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-\[\#0b0f19\],
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-\[\#0b0f19\]\/95,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-950,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-950\/95,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-950\/60,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-950\/50 {
+  background-color: var(--sov-surface-deep) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-900,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-900\/90,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-900\/80,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-900\/70,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-900\/60,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-gray-900\/95 {
+  background-color: var(--sov-surface) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-gray-800,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-gray-800\/80,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-gray-800\/70,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-gray-700 {
+  border-color: var(--sov-border) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .text-\[\#D4AF37\] {
+  color: var(--sov-accent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-\[\#D4AF37\] {
+  background-color: var(--sov-accent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-\[\#D4AF37\]\/10 {
+  background-color: color-mix(in srgb, var(--sov-accent) 12%, transparent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-\[\#D4AF37\]\/15 {
+  background-color: color-mix(in srgb, var(--sov-accent) 16%, transparent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .bg-\[\#D4AF37\]\/25 {
+  background-color: color-mix(in srgb, var(--sov-accent) 25%, transparent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-\[\#D4AF37\],
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-\[\#D4AF37\]\/60,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-\[\#D4AF37\]\/50,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-\[\#D4AF37\]\/40,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-\[\#D4AF37\]\/30,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .border-\[\#D4AF37\]\/20 {
+  border-color: color-mix(in srgb, var(--sov-accent) 45%, transparent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .hover\:border-\[\#D4AF37\]:hover,
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .hover\:border-\[\#D4AF37\]\/50:hover {
+  border-color: var(--sov-accent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .from-\[\#D4AF37\] {
+  --tw-gradient-from: var(--sov-accent) !important;
+}
+
+[data-sovereign-theme]:not([data-sovereign-theme="sovereign_gold"]) .to-\[\#10B981\] {
+  --tw-gradient-to: var(--sov-secondary) !important;
+}
+
+/* UI Density Overrides */
+[data-sovereign-density="compact"] main .p-6 {
+  padding: 1rem !important;
+}
+
+[data-sovereign-density="compact"] main .p-5 {
+  padding: 0.875rem !important;
+}
+
+[data-sovereign-density="compact"] main .gap-6 {
+  gap: 0.875rem !important;
+}
+
+[data-sovereign-density="compact"] main .space-y-6 > :not(:first-child) {
+  margin-top: 0.875rem !important;
+}
+
+[data-sovereign-density="comfortable"] main .p-6 {
+  padding: 1.65rem;
+}
+
+[data-sovereign-density="comfortable"] main .gap-6 {
+  gap: 1.65rem;
+}
+
+/* Layout Mode Structural Styles */
+[data-sovereign-layout="compact_dashboard"] main .p-8,
+[data-sovereign-layout="compact_dashboard"] main .p-6 {
+  padding: 0.875rem !important;
+}
+
+[data-sovereign-layout="compact_dashboard"] main .p-5,
+[data-sovereign-layout="compact_dashboard"] main .p-4 {
+  padding: 0.75rem !important;
+}
+
+[data-sovereign-layout="compact_dashboard"] main .gap-6 {
+  gap: 0.75rem !important;
+}
+
+[data-sovereign-layout="compact_dashboard"] main .space-y-6 > :not(:first-child) {
+  margin-top: 0.75rem !important;
+}
+
+[data-sovereign-layout="compact_dashboard"] main .rounded-3xl,
+[data-sovereign-layout="compact_dashboard"] main .rounded-2xl {
+  border-radius: 0.875rem !important;
+}
+
+[data-sovereign-layout="full_width_stack"] .sovereign-full-stack > div > div:first-child {
+  border-top: 2px solid color-mix(in srgb, var(--sov-accent) 45%, transparent);
+}
+
+[data-sovereign-layout="minimal_sidebar"] main .rounded-3xl,
+[data-sovereign-layout="minimal_sidebar"] main .rounded-2xl {
+  box-shadow: none !important;
+}
+
+/* Multi-Panel Dashboard Grid Cell Polish */
+.sovereign-multi-grid > div {
+  min-width: 0;
+  border-radius: 1.5rem;
+  border: 1px solid var(--sov-border);
+  background-color: rgba(11, 15, 25, 0.55);
+  padding: 1rem;
+  box-shadow: 0 20px 35px -15px rgba(0, 0, 0, 0.65);
+  overflow-x: auto;
+}
+
+
+
+
 

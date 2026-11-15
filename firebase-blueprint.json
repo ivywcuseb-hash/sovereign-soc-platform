@@ -12,8 +12,11 @@
         "mimeType": { "type": "string", "maxLength": 128 },
         "fileSize": { "type": "number" },
         "storagePath": { "type": "string", "maxLength": 512 },
-        "downloadUrl": { "type": "string", "maxLength": 1024 },
+        "storageStatus": { "type": "string", "enum": ["cloud", "local"] },
+        "fileUrl": { "type": "string", "maxLength": 2048 },
+        "downloadUrl": { "type": "string", "maxLength": 2048 },
         "sha256": { "type": "string", "maxLength": 64, "pattern": "^[a-f0-9]{64}$" },
+        "sha512": { "type": "string", "maxLength": 128 },
         "sha1": { "type": "string", "maxLength": 40 },
         "md5": { "type": "string", "maxLength": 32 },
         "exif": { "type": "object" },
@@ -79,6 +82,48 @@
       },
       "required": [ "id", "userId", "action", "timestamp" ]
     },
+    "CustodyLedgerEvent": {
+      "title": "CustodyLedgerEvent",
+      "description": "Immutable investigator-wide cryptographic chain of custody block",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "evidenceId": { "type": "string", "maxLength": 128 },
+        "actionCategory": { "type": "string", "enum": ["EVIDENCE_UPLOAD", "FILE_INSPECTION", "SETTINGS_CHANGE", "MANUAL_CUSTODY", "REPORT_EXPORT", "LOG_ANALYSIS", "CASE_MANAGEMENT"] },
+        "action": { "type": "string", "maxLength": 256 },
+        "officerName": { "type": "string", "maxLength": 128 },
+        "location": { "type": "string", "maxLength": 256 },
+        "notes": { "type": "string", "maxLength": 1024 },
+        "prevHash": { "type": "string", "maxLength": 64 },
+        "recordHash": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "userId", "evidenceId", "actionCategory", "action", "prevHash", "recordHash", "timestamp" ]
+    },
+    "ForensicReport": {
+      "title": "ForensicReport",
+      "description": "Immutable sealed forensic report aggregating evidence and SHA-256 digests",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "investigationId": { "type": "string", "maxLength": 128 },
+        "caseNumber": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 256 },
+        "classification": { "type": "string", "enum": ["TOP_SECRET", "CONFIDENTIAL", "OFFICIAL"] },
+        "examinerName": { "type": "string", "maxLength": 128 },
+        "department": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "maxLength": 2048 },
+        "evidenceCount": { "type": "number" },
+        "evidenceSha256List": { "type": "array" },
+        "iocCount": { "type": "number" },
+        "custodyCount": { "type": "number" },
+        "reportSealSha256": { "type": "string", "maxLength": 64 },
+        "exportFormat": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "userId", "caseNumber", "title", "classification", "examinerName", "evidenceCount", "reportSealSha256", "createdAt" ]
+    },
     "UserProfile": {
       "title": "UserProfile",
       "description": "User account and preferences",
@@ -110,6 +155,14 @@
     "/evidence/{evidenceId}/chain_of_custody/{entryId}": {
       "schema": "ChainOfCustody",
       "description": "History of evidence handling"
+    },
+    "/custody_ledger/{entryId}": {
+      "schema": "CustodyLedgerEvent",
+      "description": "Append-only investigator-wide cryptographic chain of custody ledger"
+    },
+    "/forensic_reports/{reportId}": {
+      "schema": "ForensicReport",
+      "description": "Immutable cryptographically sealed forensic report registry"
     },
     "/audit_logs/{logId}": {
       "schema": "AuditLog",
