@@ -154,6 +154,10 @@ import {
   storage, 
   googleProvider, 
   firebaseConfig,
+  isUsingCustomFirebaseConfig,
+  parseFirebaseConfigInput,
+  saveCustomFirebaseConfig,
+  resetCustomFirebaseConfig,
   signInWithPopup, 
   signInWithRedirect,
   signOut, 
@@ -660,7 +664,9 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
-  const [showEmailCloudSync, setShowEmailCloudSync] = useState<boolean>(false);
+  const [showCustomFirebasePanel, setShowCustomFirebasePanel] = useState<boolean>(false);
+  const [customFirebaseRaw, setCustomFirebaseRaw] = useState<string>('');
+  const [customFirebaseError, setCustomFirebaseError] = useState<string | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
@@ -9078,10 +9084,10 @@ export default function App() {
                           </button>
 
                           {unauthorizedDomainHost && (
-                            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-[#D4AF37]/50 text-right space-y-2.5">
+                            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-[#D4AF37]/50 text-right space-y-3">
                               <div className="flex items-start justify-between gap-2">
                                 <span className="text-[11px] font-bold text-[#D4AF37]">
-                                  تفعيل Google Auth لهذا النطاق في Firebase
+                                  لماذا توقف تسجيل دخول Google على GitHub؟
                                 </span>
                                 <button
                                   type="button"
@@ -9092,7 +9098,7 @@ export default function App() {
                                 </button>
                               </div>
                               <p className="text-[11px] text-gray-300 leading-relaxed">
-                                جميع مختبرات الفحص المحلية تعمل 100% حالياً. لتفعيل المزامنة عبر Google على هذا الرابط، أضف النطاق التالي في <span className="font-mono text-white">Firebase Console → Authentication → Settings → Authorized domains</span>:
+                                Google Firebase يمنع المصادقة من أي نطاق خارجي حتى تضيفه في <span className="font-mono text-white">Authorized domains</span> (بينما المختبرات المحلية تعمل 100%).
                               </p>
                               <div className="flex items-center justify-between gap-2 bg-gray-950 px-2.5 py-1.5 rounded-lg border border-gray-800">
                                 <span dir="ltr" className="font-mono text-[11px] text-emerald-400 truncate">
@@ -9109,59 +9115,83 @@ export default function App() {
                                   نسخ النطاق
                                 </button>
                               </div>
-                              <div className="flex items-center justify-between gap-2 text-[10px] text-gray-400 font-mono">
-                                <span dir="ltr">Project: {firebaseConfig.projectId}</span>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                  href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-[11px] transition"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                  فتح Authorized Domains في Firebase
+                                </a>
                                 <button
                                   type="button"
-                                  onClick={() => setShowEmailCloudSync((v) => !v)}
-                                  className="text-[#D4AF37] hover:underline font-sans font-bold cursor-pointer"
+                                  onClick={() => {
+                                    setShowCustomFirebasePanel((v) => !v);
+                                    setCustomFirebaseError(null);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-[#D4AF37] text-[10px] font-bold cursor-pointer"
                                 >
-                                  {showEmailCloudSync ? 'إخفاء دخول البريد' : 'أو الدخول بالبريد وكلمة المرور'}
+                                  {showCustomFirebasePanel ? 'إخفاء الربط المخصص' : 'أو ربط مشروع Firebase خاص بك'}
                                 </button>
+                              </div>
+
+                              <div className="text-[10px] text-gray-400 font-mono" dir="ltr">
+                                Active Project: {firebaseConfig.projectId} {isUsingCustomFirebaseConfig ? '(Custom)' : ''}
                               </div>
                             </div>
                           )}
 
-                          {showEmailCloudSync && (
-                            <form onSubmit={handleEmailAuth} className="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-2.5 text-right">
-                              <input
-                                type="email"
-                                value={authEmail}
-                                onChange={(e) => setAuthEmail(e.target.value)}
-                                placeholder="البريد الإلكتروني السحابي"
-                                className="w-full px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
-                                required
-                              />
-                              <input
-                                type="password"
-                                value={authPassword}
-                                onChange={(e) => setAuthPassword(e.target.value)}
-                                placeholder="كلمة المرور"
-                                className="w-full px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
-                                required
-                              />
-                              {authError && (
-                                <p className="text-[10px] text-red-400">{authError}</p>
-                              )}
-                              <div className="flex gap-2">
-                                <button
-                                  type="submit"
-                                  disabled={authLoading}
-                                  onClick={() => setAuthMode('login')}
-                                  className="flex-1 py-2 bg-[#D4AF37] text-gray-950 font-bold text-[11px] rounded-lg cursor-pointer disabled:opacity-50"
-                                >
-                                  دخول
-                                </button>
-                                <button
-                                  type="submit"
-                                  disabled={authLoading}
-                                  onClick={() => setAuthMode('signup')}
-                                  className="flex-1 py-2 bg-gray-800 text-white font-bold text-[11px] rounded-lg cursor-pointer disabled:opacity-50"
-                                >
-                                  حساب جديد
-                                </button>
+                          {(showCustomFirebasePanel || isUsingCustomFirebaseConfig) && (
+                            <div className="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-2.5 text-right">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold text-white">
+                                  ربط مشروع Firebase خاص بك (للعمل على {typeof window !== 'undefined' ? window.location.hostname : 'GitHub'})
+                                </span>
+                                {isUsingCustomFirebaseConfig && (
+                                  <button
+                                    type="button"
+                                    onClick={resetCustomFirebaseConfig}
+                                    className="text-[10px] text-red-400 hover:underline cursor-pointer"
+                                  >
+                                    استعادة الافتراضي
+                                  </button>
+                                )}
                               </div>
-                            </form>
+                              <p className="text-[10px] text-gray-400 leading-relaxed">
+                                إذا لم يظهر لك المشروع الافتراضي في حسابك: أنشئ مشروعاً مجانياً في Firebase Console، فعّل Google Auth، أضف <span className="font-mono text-gray-200">{typeof window !== 'undefined' ? window.location.hostname : 'github.io'}</span> إلى Authorized domains، ثم الصق كود <span className="font-mono text-gray-200">firebaseConfig</span> هنا:
+                              </p>
+                              <textarea
+                                rows={4}
+                                dir="ltr"
+                                value={customFirebaseRaw}
+                                onChange={(e) => {
+                                  setCustomFirebaseRaw(e.target.value);
+                                  setCustomFirebaseError(null);
+                                }}
+                                placeholder={'{\n  "apiKey": "AIza...",\n  "authDomain": "your-app.firebaseapp.com",\n  "projectId": "your-app",\n  "appId": "1:...:web:..."\n}'}
+                                className="w-full p-2.5 bg-gray-950 border border-gray-800 rounded-lg text-[10px] font-mono text-emerald-300 focus:border-[#D4AF37] outline-none"
+                              />
+                              {customFirebaseError && (
+                                <p className="text-[10px] text-red-400">{customFirebaseError}</p>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const parsed = parseFirebaseConfigInput(customFirebaseRaw);
+                                  if (!parsed) {
+                                    setCustomFirebaseError('تأكد من احتواء الكود على apiKey و authDomain و projectId و appId.');
+                                    return;
+                                  }
+                                  saveCustomFirebaseConfig(parsed);
+                                }}
+                                className="w-full py-2 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-[11px] rounded-lg transition cursor-pointer"
+                              >
+                                حفظ المشروع المخصص وإعادة التحميل
+                              </button>
+                            </div>
                           )}
                         </div>
                       ) : (
