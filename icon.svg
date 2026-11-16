@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5D061"/>
+      <stop offset="50%" stop-color="#D4AF37"/>
+      <stop offset="100%" stop-color="#9A7B1C"/>
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)"/>
+  <rect x="16" y="16" width="480" height="480" rx="84" fill="none" stroke="#D4AF37" stroke-opacity="0.35" stroke-width="4"/>
+  <!-- Subtle Forensic Radar Rings -->
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#D4AF37" stroke-opacity="0.12" stroke-width="2" stroke-dasharray="10 10"/>
+  <circle cx="256" cy="256" r="132" fill="none" stroke="#10B981" stroke-opacity="0.15" stroke-width="2"/>
+  <!-- Sovereign Shield -->
+  <path d="M256 76 L396 132 V248 C396 338 334 406 256 436 C178 406 116 338 116 248 V132 Z"
+        fill="#0f172a" stroke="url(#goldGrad)" stroke-width="18" stroke-linejoin="round"/>
+  <!-- Inner Shield Accent -->
+  <path d="M256 108 L368 152 V246 C368 318 318 374 256 400 C194 374 144 318 144 246 V152 Z"
+        fill="none" stroke="#D4AF37" stroke-opacity="0.3" stroke-width="4" stroke-linejoin="round"/>
+  <!-- Forensic Verification Checkmark -->
+  <path d="M198 256 L238 298 L320 206"
+        fill="none" stroke="url(#emeraldGrad)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
