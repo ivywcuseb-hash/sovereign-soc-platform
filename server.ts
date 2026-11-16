@@ -106,8 +106,8 @@ async function startServer() {
     });
   });
 
-  // Helper: recursively collect files safely (never exposing secrets or node_modules)
-  const IGNORED_DIRS = new Set(['node_modules', '.git', 'dev-dist', 'docs', '.vercel', '.firebase', 'android', 'ios']);
+  // Helper: recursively collect files safely (never exposing secrets, node_modules, or chat screenshots)
+  const IGNORED_DIRS = new Set(['node_modules', '.git', 'dev-dist', 'docs', '.vercel', '.firebase', 'android', 'ios', 'aistudio']);
   const IGNORED_FILES = new Set(['.env', '.env.local', '.env.production', '.env.development']);
 
   async function collectDirectoryFiles(
@@ -161,8 +161,8 @@ async function startServer() {
     return [
       `# Sovereign Forensic Engine v${version} - Mobile & PWA Export (${mode})`,
       '',
-      '## 1. تشغيل أو نشر الحزمة على الويب مباشرة (Vercel / Netlify / GitHub Pages)',
-      '- إذا استخدمت حزمة `pwa-dist`: محتويات المجلد جاهزة للرفع الفوري على Netlify Drop أو Vercel (`vercel --prod`) أو GitHub Pages.',
+      '## 1. تشغيل أو نشر الحزمة على الويب مباشرة (GitHub Pages / Vercel / Netlify)',
+      '- إذا استخدمت حزمة `github-pages` أو `pwa-dist`: محتويات المجلد جاهزة للرفع الفوري على GitHub Web UI (Upload files) أو Netlify Drop أو Vercel (`vercel --prod`).',
       '- إذا استخدمت حزمة `full-source`: نفّذ:',
       '  1) `npm install --legacy-peer-deps`',
       '  2) `npm run build`',
@@ -212,6 +212,7 @@ async function startServer() {
         sourceFileCount: srcFiles.length + publicFiles.length,
         sourceSizeBytes,
         directDownloadUrls: {
+          githubPages: '/api/export/pwa-package?mode=github-pages',
           pwaDist: '/api/export/pwa-package?mode=pwa-dist',
           fullSource: '/api/export/pwa-package?mode=full-source',
         },
@@ -223,10 +224,16 @@ async function startServer() {
     }
   });
 
-  // Real Downloadable Mobile / PWA ZIP Export API
+  // Real Downloadable Mobile / PWA / GitHub Pages ZIP Export API
   app.get('/api/export/pwa-package', async (req, res) => {
     try {
-      const mode = req.query.mode === 'full-source' ? 'full-source' : 'pwa-dist';
+      const rawMode = String(req.query.mode || 'pwa-dist');
+      const mode =
+        rawMode === 'full-source'
+          ? 'full-source'
+          : rawMode === 'github-pages'
+          ? 'github-pages'
+          : 'pwa-dist';
       const zip = new JSZip();
 
       const distDir = path.join(__dirname, 'dist');
@@ -237,7 +244,24 @@ async function startServer() {
         ? docsDir
         : null;
 
-      if (mode === 'pwa-dist') {
+      if (mode === 'github-pages') {
+        // Minimal, super-clean static build root (~16 files, zero duplicates) ready for GitHub Web UI drag-and-drop
+        if (activeBuildDir) {
+          const distFiles = await collectDirectoryFiles(activeBuildDir);
+          for (const file of distFiles) {
+            zip.file(file.archivePath, await fsp.readFile(file.fullPath));
+          }
+        } else {
+          const publicFiles = await collectDirectoryFiles(path.join(__dirname, 'public'));
+          for (const file of publicFiles) {
+            zip.file(file.archivePath, await fsp.readFile(file.fullPath));
+          }
+          if (fs.existsSync(path.join(__dirname, 'index.html'))) {
+            zip.file('index.html', await fsp.readFile(path.join(__dirname, 'index.html')));
+          }
+        }
+        zip.file('.nojekyll', '');
+      } else if (mode === 'pwa-dist') {
         if (activeBuildDir) {
           const distFiles = await collectDirectoryFiles(activeBuildDir);
           for (const file of distFiles) {
@@ -267,18 +291,11 @@ async function startServer() {
         zip.file('capacitor.config.json', createCapacitorConfigJson());
         zip.file('README-MOBILE-DEPLOY.md', createMobileDeployReadme(SYSTEM_CURRENT_VERSION, 'pwa-dist'));
       } else {
-        // Full Source + Built Output Bundle
+        // Full Source Bundle (clean repo without dist/node_modules/.env so git push & GitHub Actions work cleanly)
         const dirsToInclude = ['src', 'public', '.github'];
         for (const dirName of dirsToInclude) {
           const files = await collectDirectoryFiles(path.join(__dirname, dirName), dirName);
           for (const file of files) {
-            zip.file(file.archivePath, await fsp.readFile(file.fullPath));
-          }
-        }
-
-        if (activeBuildDir) {
-          const distFiles = await collectDirectoryFiles(activeBuildDir, 'dist');
-          for (const file of distFiles) {
             zip.file(file.archivePath, await fsp.readFile(file.fullPath));
           }
         }
@@ -319,6 +336,8 @@ async function startServer() {
       const downloadName =
         mode === 'full-source'
           ? `sovereign-forensic-full-source-v${SYSTEM_CURRENT_VERSION}.zip`
+          : mode === 'github-pages'
+          ? `sovereign-forensic-github-pages-v${SYSTEM_CURRENT_VERSION}.zip`
           : `sovereign-forensic-mobile-pwa-v${SYSTEM_CURRENT_VERSION}.zip`;
 
       res.setHeader('Content-Type', 'application/zip');

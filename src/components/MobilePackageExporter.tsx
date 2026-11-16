@@ -13,11 +13,12 @@ import {
   RefreshCw,
   ShieldCheck,
   FolderArchive,
-  Link2
+  Link2,
+  Globe
 } from 'lucide-react';
 import { APP_CURRENT_VERSION } from './UpdateNotification';
 
-export type ExportPackageMode = 'pwa-dist' | 'full-source';
+export type ExportPackageMode = 'github-pages' | 'pwa-dist' | 'full-source';
 
 interface BuildInfoResponse {
   version: string;
@@ -28,6 +29,7 @@ interface BuildInfoResponse {
   sourceFileCount: number;
   sourceSizeBytes: number;
   directDownloadUrls: {
+    githubPages?: string;
     pwaDist: string;
     fullSource: string;
   };
@@ -104,29 +106,35 @@ async function buildClientFallbackZip(mode: ExportPackageMode): Promise<Blob> {
       const cleanPath = relPath.replace(/^\.\//, '').replace(/^\//, '');
       const buf = await response.arrayBuffer();
       zip.file(cleanPath, buf);
-      zip.file(`www/${cleanPath}`, buf);
+      if (mode !== 'github-pages') {
+        zip.file(`www/${cleanPath}`, buf);
+      }
     } catch {
       // Skip unreachable optional files
     }
   }
 
-  const capacitorConfig = JSON.stringify(
-    {
-      appId: 'com.sovereign.forensic.engine',
-      appName: 'Sovereign Forensic Engine',
-      webDir: 'www',
-      bundledWebRuntime: false,
-      server: { androidScheme: 'https' },
-      android: { allowMixedContent: false, backgroundColor: '#0b0f19' }
-    },
-    null,
-    2
-  );
-  zip.file('capacitor.config.json', capacitorConfig);
-  zip.file(
-    'README-MOBILE-DEPLOY.md',
-    `# Sovereign Forensic Engine v${APP_CURRENT_VERSION} (${mode})\n\nReady for static deploy (Vercel / GitHub Pages / Netlify) or Capacitor Android packaging (npx cap add android).\n`
-  );
+  if (mode === 'github-pages') {
+    zip.file('.nojekyll', '');
+  } else {
+    const capacitorConfig = JSON.stringify(
+      {
+        appId: 'com.sovereign.forensic.engine',
+        appName: 'Sovereign Forensic Engine',
+        webDir: 'www',
+        bundledWebRuntime: false,
+        server: { androidScheme: 'https' },
+        android: { allowMixedContent: false, backgroundColor: '#0b0f19' }
+      },
+      null,
+      2
+    );
+    zip.file('capacitor.config.json', capacitorConfig);
+    zip.file(
+      'README-MOBILE-DEPLOY.md',
+      `# Sovereign Forensic Engine v${APP_CURRENT_VERSION} (${mode})\n\nReady for static deploy (Vercel / GitHub Pages / Netlify) or Capacitor Android packaging (npx cap add android).\n`
+    );
+  }
 
   return zip.generateAsync({
     type: 'blob',
@@ -144,7 +152,7 @@ export function MobilePackageExportModal({
   onClose: () => void;
   onExportLogged?: (detail: { fileName: string; sizeBytes: number; sha256: string; mode: ExportPackageMode }) => void;
 }) {
-  const [selectedMode, setSelectedMode] = useState<ExportPackageMode>('pwa-dist');
+  const [selectedMode, setSelectedMode] = useState<ExportPackageMode>('github-pages');
   const [buildInfo, setBuildInfo] = useState<BuildInfoResponse | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -207,6 +215,8 @@ export function MobilePackageExportModal({
     const expectedFileName =
       selectedMode === 'full-source'
         ? `sovereign-forensic-full-source-v${APP_CURRENT_VERSION}.zip`
+        : selectedMode === 'github-pages'
+        ? `sovereign-forensic-github-pages-v${APP_CURRENT_VERSION}.zip`
         : `sovereign-forensic-mobile-pwa-v${APP_CURRENT_VERSION}.zip`;
 
     try {
@@ -339,7 +349,30 @@ export function MobilePackageExportModal({
         </div>
 
         {/* Package Mode Selector */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={() => setSelectedMode('github-pages')}
+            className={`p-4 rounded-2xl border text-right transition cursor-pointer space-y-2 ${
+              selectedMode === 'github-pages'
+                ? 'bg-[#D4AF37]/10 border-[#D4AF37] shadow-lg shadow-[#D4AF37]/10'
+                : 'bg-gray-950/50 border-gray-800 hover:border-gray-700'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className="flex items-center gap-1.5 font-bold text-xs text-white">
+                <Globe className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                حزمة GitHub Pages نظيفة
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/20 text-emerald-300 shrink-0">
+                الأسهل للرفع
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              ملفات التشغيل الجاهزة فقط (حوالي 15 ملف ~2MB بدون أي ملفات زائدة) مناسبة للسحب والإفلات المباشر في متصفح GitHub بدون أخطاء.
+            </p>
+          </button>
+
           <button
             type="button"
             onClick={() => setSelectedMode('pwa-dist')}
@@ -349,17 +382,17 @@ export function MobilePackageExportModal({
                 : 'bg-gray-950/50 border-gray-800 hover:border-gray-700'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 font-bold text-sm text-white">
-                <Smartphone className="w-4 h-4 text-[#D4AF37]" />
-                حزمة الموبايل والنشر الفوري
+            <div className="flex items-center justify-between gap-1">
+              <span className="flex items-center gap-1.5 font-bold text-xs text-white">
+                <Smartphone className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                حزمة الموبايل و Capacitor
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#D4AF37]/20 text-[#D4AF37]">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#D4AF37]/20 text-[#D4AF37] shrink-0">
                 PWA + www
               </span>
             </div>
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              تحتوي على النسخة المبنية كاملة (`index.html`، `manifest.json`، `sw.js`، `assets/`، أيقونات `192/512`، `sql-wasm.wasm`) + مجلد `www/` وملف `capacitor.config.json` و `vercel.json`.
+              تضم ملفات التطبيق المبنية + مجلد `www/` و `capacitor.config.json` و `vercel.json` لتوليد APK أو النشر على Vercel.
             </p>
           </button>
 
@@ -372,17 +405,17 @@ export function MobilePackageExportModal({
                 : 'bg-gray-950/50 border-gray-800 hover:border-gray-700'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 font-bold text-sm text-white">
-                <Code2 className="w-4 h-4 text-[#D4AF37]" />
-                الأكواد المصدرية + البناء
+            <div className="flex items-center justify-between gap-1">
+              <span className="flex items-center gap-1.5 font-bold text-xs text-white">
+                <Code2 className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                الأكواد المصدرية الكاملة
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-400">
-                Full Repo ZIP
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-500/15 text-blue-300 shrink-0">
+                Git / Actions
               </span>
             </div>
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              تحتوي على كامل الشيفرة البرمجية (`src/`، `public/`، `server.ts`، `vite.config.ts`، `.github/workflows/deploy.yml`، `vercel.json`، `dist/`) للرفع المباشر على GitHub أو Vercel.
+              كامل الشيفرة (`src/`، `public/`، `.github/workflows/deploy.yml`، `vercel.json`) نظيفة وخالية من `.env` لـ `git push`.
             </p>
           </button>
         </div>
