@@ -1,56 +1,173 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
+    // =========================================================================
+    // Core Identity, Authorization & Schema Helpers (Zero-Trust Default Deny)
+    // =========================================================================
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
-    
+
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null && request.auth.uid is string && request.auth.uid.size() > 0;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Server-side Admin verification: clients can NEVER write to /admins/{uid}
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
     function incoming() {
       return request.resource.data;
     }
-    
+
     function existing() {
       return resource.data;
     }
 
+    function isHex64(val) {
+      return val is string && val.size() == 64 && val.matches('^[a-fA-F0-9]{64}$');
+    }
+
+    // Global Fail-Closed Catch-All
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // Server-Controlled Admin Registry (Admin SDK / Console ONLY)
+    match /admins/{adminId} {
+      allow read, write: if false;
+    }
+
+    // Server-Controlled Tamper-Proof Security Events (Admin SDK writes only)
+    match /security_events/{eventId} {
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(eventId) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // User Profiles (Privilege Escalation Hardened)
+    // =========================================================================
+    function isValidUserCreate(data) {
+      return data.keys().hasAll(['uid', 'email'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'role', 'settings', 'createdAt'])
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 320
+        && (!('role' in data) || data.role == 'analyst')
+        && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128))
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048))
+        && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64))
+        && (!('settings' in data) || data.settings is map);
+    }
+
+    function isValidUserUpdate(next, prev) {
+      return next.diff(prev).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings'])
+        && next.uid == prev.uid
+        && (!('role' in prev) || next.role == prev.role)
+        && (!('displayName' in next) || (next.displayName is string && next.displayName.size() <= 128))
+        && (!('photoURL' in next) || (next.photoURL is string && next.photoURL.size() <= 2048))
+        && (!('settings' in next) || next.settings is map);
+    }
+
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && incoming().keys().hasAll(['uid', 'email']) && incoming().keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'role', 'settings', 'createdAt']);
-      allow update: if isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings']);
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserCreate(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUserUpdate(incoming(), existing());
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Forensic Investigations (Strict Tenant Ownership)
+    // =========================================================================
+    function isValidInvestigation(data) {
+      return data.keys().hasAll(['userId', 'title', 'status', 'createdAt'])
+        && data.keys().hasOnly(['userId', 'title', 'description', 'caseNumber', 'status', 'createdAt', 'updatedAt', 'isTest'])
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 256
+        && data.status in ['active', 'closed', 'archived']
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && (!('description' in data) || (data.description is string && data.description.size() <= 1024))
+        && (!('caseNumber' in data) || (data.caseNumber is string && data.caseNumber.size() <= 64))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64))
+        && (!('isTest' in data) || data.isTest is bool);
     }
 
     match /investigations/{invId} {
-      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == existing().userId;
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(invId) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(invId) && incoming().userId == request.auth.uid && isValidInvestigation(incoming());
+      allow update: if isSignedIn() && isValidId(invId)
+        && (existing().userId == request.auth.uid || isAdmin())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && isValidInvestigation(incoming());
+      allow delete: if isSignedIn() && isValidId(invId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // =========================================================================
+    // Digital Evidence Vault & Per-Evidence Custody Chain
+    // =========================================================================
+    function isValidEvidenceCreate(data) {
+      return data.keys().hasAll(['userId', 'investigationId', 'fileName', 'sha256', 'createdAt'])
+        && data.keys().hasOnly(['userId', 'investigationId', 'fileName', 'fileUrl', 'storagePath', 'storageStatus', 'fileSize', 'mimeType', 'sha256', 'sha1', 'sha512', 'md5', 'analysis', 'createdAt', 'updatedAt'])
+        && data.userId == request.auth.uid
+        && data.investigationId is string && data.investigationId.size() > 0 && data.investigationId.size() <= 128
+        && data.fileName is string && data.fileName.size() > 0 && data.fileName.size() <= 256
+        && isHex64(data.sha256)
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && (!('fileSize' in data) || (data.fileSize is number && data.fileSize >= 0 && data.fileSize <= 104857600))
+        && (!('mimeType' in data) || (data.mimeType is string && data.mimeType.size() <= 128))
+        && (!('storageStatus' in data) || data.storageStatus in ['cloud', 'local'])
+        && (!('fileUrl' in data) || (data.fileUrl is string && data.fileUrl.size() <= 65536))
+        && (!('storagePath' in data) || (data.storagePath is string && data.storagePath.size() <= 512))
+        && (!('sha1' in data) || (data.sha1 is string && data.sha1.size() <= 40))
+        && (!('sha512' in data) || (data.sha512 is string && data.sha512.size() <= 128))
+        && (!('md5' in data) || (data.md5 is string && data.md5.size() <= 32))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64))
+        && (!('analysis' in data) || data.analysis is map);
+    }
+
+    function isValidEvidenceUpdate(next, prev) {
+      return next.diff(prev).affectedKeys().hasOnly(['investigationId', 'fileUrl', 'storagePath', 'storageStatus', 'analysis', 'updatedAt'])
+        && next.userId == prev.userId
+        && next.sha256 == prev.sha256
+        && next.createdAt == prev.createdAt
+        && (!('investigationId' in next) || (next.investigationId is string && next.investigationId.size() > 0 && next.investigationId.size() <= 128))
+        && (!('storageStatus' in next) || next.storageStatus in ['cloud', 'local'])
+        && (!('fileUrl' in next) || (next.fileUrl is string && next.fileUrl.size() <= 65536))
+        && (!('storagePath' in next) || (next.storagePath is string && next.storagePath.size() <= 512));
     }
 
     match /evidence/{evidenceId} {
-      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == existing().userId;
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(evidenceId) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(evidenceId) && isValidEvidenceCreate(incoming());
+      allow update: if isSignedIn() && isValidId(evidenceId) && (existing().userId == request.auth.uid || isAdmin()) && isValidEvidenceUpdate(incoming(), existing());
+      allow delete: if isSignedIn() && isValidId(evidenceId) && (existing().userId == request.auth.uid || isAdmin());
 
       match /chain_of_custody/{entryId} {
-        allow list, get: if isSignedIn() && get(/databases/$(database)/documents/evidence/$(evidenceId)).data.userId == request.auth.uid;
-        allow create: if isSignedIn() && get(/databases/$(database)/documents/evidence/$(evidenceId)).data.userId == request.auth.uid;
+        allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+        allow get: if isSignedIn() && isValidId(entryId) && (resource.data.userId == request.auth.uid || isAdmin());
+        allow create: if isSignedIn() && isValidId(evidenceId) && isValidId(entryId)
+          && incoming().userId == request.auth.uid
+          && incoming().evidenceId == evidenceId
+          && incoming().keys().hasAll(['evidenceId', 'userId', 'action', 'location', 'timestamp'])
+          && incoming().keys().hasOnly(['evidenceId', 'userId', 'officerName', 'action', 'location', 'notes', 'timestamp', 'prevHash', 'recordHash'])
+          && get(/databases/$(database)/documents/evidence/$(evidenceId)).data.userId == request.auth.uid;
+        allow update, delete: if false;
       }
     }
 
+    // =========================================================================
+    // Append-Only Cryptographic Chain of Custody Ledger
+    // =========================================================================
     function isValidCustodyBlock(data) {
       return data.keys().hasAll(['userId', 'evidenceId', 'actionCategory', 'action', 'location', 'timestamp', 'prevHash', 'recordHash'])
         && data.keys().hasOnly(['userId', 'evidenceId', 'actionCategory', 'action', 'officerName', 'location', 'notes', 'timestamp', 'prevHash', 'recordHash'])
@@ -60,19 +177,22 @@ service cloud.firestore {
         && data.action is string && data.action.size() > 0 && data.action.size() <= 256
         && data.location is string && data.location.size() <= 256
         && data.timestamp is string && data.timestamp.size() <= 64
-        && data.prevHash is string && data.prevHash.size() == 64
-        && data.recordHash is string && data.recordHash.size() == 64
+        && isHex64(data.prevHash)
+        && isHex64(data.recordHash)
         && (!('officerName' in data) || (data.officerName is string && data.officerName.size() <= 128))
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1024));
     }
 
     match /custody_ledger/{entryId} {
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && isValidId(entryId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(entryId) && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn() && isValidId(entryId) && isValidCustodyBlock(incoming());
       allow update, delete: if false;
     }
 
+    // =========================================================================
+    // Sealed Forensic Reports (Immutable)
+    // =========================================================================
     function isValidForensicReport(data) {
       return data.keys().hasAll(['userId', 'caseNumber', 'title', 'classification', 'examinerName', 'evidenceCount', 'reportSealSha256', 'createdAt'])
         && data.keys().hasOnly(['userId', 'investigationId', 'caseNumber', 'title', 'classification', 'examinerName', 'department', 'summary', 'evidenceCount', 'evidenceSha256List', 'iocCount', 'custodyCount', 'reportSealSha256', 'exportFormat', 'createdAt'])
@@ -82,7 +202,7 @@ service cloud.firestore {
         && data.classification in ['TOP_SECRET', 'CONFIDENTIAL', 'OFFICIAL']
         && data.examinerName is string && data.examinerName.size() > 0 && data.examinerName.size() <= 128
         && data.evidenceCount is number && data.evidenceCount >= 0 && data.evidenceCount <= 500
-        && data.reportSealSha256 is string && data.reportSealSha256.size() == 64
+        && isHex64(data.reportSealSha256)
         && data.createdAt is string && data.createdAt.size() <= 64
         && (!('investigationId' in data) || (data.investigationId is string && data.investigationId.size() <= 128))
         && (!('department' in data) || (data.department is string && data.department.size() <= 128))
@@ -94,15 +214,36 @@ service cloud.firestore {
     }
 
     match /forensic_reports/{reportId} {
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && isValidId(reportId) && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(reportId) && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn() && isValidId(reportId) && isValidForensicReport(incoming());
       allow update, delete: if false;
     }
 
+    // =========================================================================
+    // Immutable Audit Logs (Strict SHA-256 & Score Validation)
+    // =========================================================================
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'userId', 'fileName', 'authenticityScore', 'sha256', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'investigationId', 'fileName', 'fileSize', 'authenticityScore', 'laplacianVariance', 'aiConfidence', 'summary', 'sha256', 'createdAt', 'risk', 'action', 'details', 'targetId', 'targetType', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.fileName is string && data.fileName.size() > 0 && data.fileName.size() <= 256
+        && data.authenticityScore is number && data.authenticityScore >= 0 && data.authenticityScore <= 100
+        && isHex64(data.sha256)
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && (!('investigationId' in data) || (data.investigationId is string && data.investigationId.size() <= 128))
+        && (!('fileSize' in data) || (data.fileSize is number && data.fileSize >= 0))
+        && (!('laplacianVariance' in data) || data.laplacianVariance is number)
+        && (!('aiConfidence' in data) || (data.aiConfidence is number && data.aiConfidence >= 0 && data.aiConfidence <= 100))
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 1024));
+    }
+
     match /audit_logs/{logId} {
-      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && isValidId(logId) && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(logId) && isValidAuditLog(incoming());
+      allow update, delete: if false;
     }
   }
 }

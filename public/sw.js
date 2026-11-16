@@ -54,8 +54,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Always use live network for backend API calls
-  if (url.pathname.startsWith('/api/')) return;
+  // Always use live network for backend API calls and Firebase Auth reserved handlers
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/__/')) return;
 
   // App navigation requests: Network-first with offline shell fallback
   if (request.mode === 'navigate') {

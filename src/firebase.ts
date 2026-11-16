@@ -1,9 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signInWithRedirect,
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -101,14 +98,10 @@ export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestore
   : getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export { 
   firebaseConfig,
   isUsingCustomFirebaseConfig,
-  signInWithPopup, 
-  signInWithRedirect,
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,

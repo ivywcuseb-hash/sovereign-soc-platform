@@ -9,6 +9,7 @@ import {
   Server,
   Terminal,
 } from 'lucide-react';
+import { apiUrl } from '../utils/apiBase';
 
 export interface TelemetryLogEntry {
   id: string;
@@ -33,17 +34,29 @@ export const DeveloperTelemetryBar: React.FC<DeveloperTelemetryBarProps> = ({
   const [gatewayLatencyMs, setGatewayLatencyMs] = useState<number | null>(null);
   const [gatewayConnected, setGatewayConnected] = useState<boolean>(networkOnline);
   const [heapMb, setHeapMb] = useState<string | null>(null);
+  const [securityAlertLevel, setSecurityAlertLevel] = useState<'NORMAL' | 'ELEVATED' | 'HIGH' | 'CRITICAL'>('NORMAL');
+  const [securityBlockedCount, setSecurityBlockedCount] = useState<number>(0);
 
   useEffect(() => {
     let mounted = true;
     const probeGateway = async () => {
       const start = performance.now();
       try {
-        const res = await fetch('/api/version?clientVersion=2.5.2', { cache: 'no-store' });
+        const [verRes, secRes] = await Promise.all([
+          fetch(apiUrl('/api/version?clientVersion=2.5.2'), { cache: 'no-store' }),
+          fetch(apiUrl('/api/security/status'), { cache: 'no-store' }).catch(() => null),
+        ]);
         if (!mounted) return;
         const elapsed = Math.max(1, Math.round(performance.now() - start));
-        setGatewayConnected(res.ok);
+        setGatewayConnected(verRes.ok);
         setGatewayLatencyMs(elapsed);
+        if (secRes && secRes.ok) {
+          const secData = await secRes.json().catch(() => null);
+          if (secData && secData.alertLevel) {
+            setSecurityAlertLevel(secData.alertLevel);
+            setSecurityBlockedCount(Number(secData.totalBlocked || 0));
+          }
+        }
       } catch {
         if (!mounted) return;
         setGatewayConnected(false);
@@ -77,7 +90,9 @@ export const DeveloperTelemetryBar: React.FC<DeveloperTelemetryBarProps> = ({
             </div>
             <div className="flex items-center gap-3 text-gray-400">
               <span>MODULE: {activeTab.toUpperCase()}</span>
-              <span className="text-emerald-400">NEURAL-X DAEMON: ONLINE</span>
+              <span className={securityAlertLevel === 'CRITICAL' || securityAlertLevel === 'HIGH' ? 'text-red-400' : 'text-emerald-400'}>
+                DEFENSE MONITOR: {securityAlertLevel} ({securityBlockedCount} BLOCKED)
+              </span>
               <button
                 type="button"
                 onClick={() => setExpanded(false)}

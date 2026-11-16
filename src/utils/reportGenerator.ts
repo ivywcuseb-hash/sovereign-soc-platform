@@ -209,6 +209,7 @@ export function generateOfficialHtmlReport(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; script-src 'none'; object-src 'none'; base-uri 'none';" />
   <title>تقرير جنائي موثق | ${escapeHtml(dossier.caseNumber)}</title>
   <style>
     @page { size: A4; margin: 16mm; }
@@ -472,7 +473,14 @@ export function generateOfficialCsvManifest(dossier: ForensicDossierInput, repor
     'CreatedAt',
   ];
 
-  const escapeCsv = (val: unknown) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+  const escapeCsv = (val: unknown) => {
+    let s = String(val ?? '');
+    // Neutralize CSV / Spreadsheet Formula Injection (CWE-1236)
+    if (/^[=+\-@\t\r]/.test(s)) {
+      s = `'${s}`;
+    }
+    return `"${s.replace(/"/g, '""')}"`;
+  };
 
   const rows = dossier.evidenceItems.map((ev, idx) =>
     [

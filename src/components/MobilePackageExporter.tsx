@@ -17,6 +17,7 @@ import {
   Globe
 } from 'lucide-react';
 import { APP_CURRENT_VERSION } from './UpdateNotification';
+import { apiUrl, getConfiguredApiBase } from '../utils/apiBase';
 
 export type ExportPackageMode = 'github-pages' | 'pwa-dist' | 'full-source';
 
@@ -161,14 +162,18 @@ export function MobilePackageExportModal({
   const [lastArtifact, setLastArtifact] = useState<ExportArtifactState | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  const serverDirectPath = `/api/export/pwa-package?mode=${selectedMode}`;
-  const fullServerDirectUrl =
-    typeof window !== 'undefined' ? `${window.location.origin}${serverDirectPath}` : serverDirectPath;
+  const serverDirectPath = apiUrl(`/api/export/pwa-package?mode=${selectedMode}`);
+  const configuredApiBase = getConfiguredApiBase();
+  const fullServerDirectUrl = configuredApiBase
+    ? serverDirectPath
+    : typeof window !== 'undefined'
+    ? `${window.location.origin}${serverDirectPath}`
+    : serverDirectPath;
 
   const fetchBuildInfo = useCallback(async () => {
     setLoadingInfo(true);
     try {
-      const res = await fetch(`/api/export/build-info?t=${Date.now()}`, { cache: 'no-store' });
+      const res = await fetch(apiUrl(`/api/export/build-info?t=${Date.now()}`), { cache: 'no-store' });
       if (res.ok) {
         const ct = res.headers.get('content-type') || '';
         if (ct.includes('application/json')) {

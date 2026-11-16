@@ -137,12 +137,50 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": [ "uid", "email" ]
+    },
+    "AdminRegistry": {
+      "title": "AdminRegistry",
+      "description": "Server-side only administrator role registry (unreachable from client SDK)",
+      "type": "object",
+      "properties": {
+        "active": { "type": "boolean" },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "active" ]
+    },
+    "SecurityEvent": {
+      "title": "SecurityEvent",
+      "description": "Tamper-proof server-recorded defensive monitoring event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "eventType": { "type": "string" },
+        "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "route": { "type": "string", "maxLength": 128 },
+        "method": { "type": "string", "maxLength": 16 },
+        "clientIpHash": { "type": "string", "maxLength": 64 },
+        "userId": { "type": ["string", "null"] },
+        "detail": { "type": "string", "maxLength": 400 },
+        "blocked": { "type": "boolean" },
+        "prevHash": { "type": "string", "maxLength": 64 },
+        "recordHash": { "type": "string", "maxLength": 64 }
+      },
+      "required": [ "id", "timestamp", "eventType", "severity", "prevHash", "recordHash" ]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Primary user documents"
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminRegistry",
+      "description": "Server-only administrator registry"
+    },
+    "/security_events/{eventId}": {
+      "schema": "SecurityEvent",
+      "description": "Server-only tamper-evident security alert logs"
     },
     "/investigations/{investigationId}": {
       "schema": "Investigation",

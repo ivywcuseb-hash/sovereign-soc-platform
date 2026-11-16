@@ -12,6 +12,7 @@ import {
   Cpu
 } from 'lucide-react';
 import { registerSW } from 'virtual:pwa-register';
+import { apiUrl } from '../utils/apiBase';
 
 export const APP_CURRENT_VERSION = '2.5.2';
 
@@ -150,7 +151,7 @@ export function useUpdateChecker() {
       }
 
       // Query version API
-      const res = await fetch(`/api/version?clientVersion=${encodeURIComponent(APP_CURRENT_VERSION)}&t=${Date.now()}`);
+      const res = await fetch(apiUrl(`/api/version?clientVersion=${encodeURIComponent(APP_CURRENT_VERSION)}&t=${Date.now()}`));
       if (res.ok) {
         const data: UpdateInfo = await res.json();
         setUpdateDetails(data);

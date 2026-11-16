@@ -1,6 +1,11 @@
 import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import * as tls from 'node:tls';
+import {
+  assertHostnameResolvesPublic,
+  isPrivateOrReservedIp,
+  securityMonitor,
+} from '../../server/security.ts';
 
 export type ThreatIndicatorType =
   | 'ipv4'
@@ -108,9 +113,29 @@ export function classifyIocIndicator(rawInput: string): {
   candidate = candidate.replace(/:\d+$/, '').trim();
 
   if (net.isIPv4(candidate)) {
+    if (isPrivateOrReservedIp(candidate)) {
+      securityMonitor.record({
+        eventType: 'SSRF_BLOCKED',
+        severity: 'high',
+        route: '/api/osint-probe',
+        method: 'POST',
+        detail: `Rejected private/reserved IPv4 probe target: ${candidate}`,
+      });
+      throw new Error('عنوان IP الخاص أو الداخلي مرفوض أمنياً لمنع فحص البنية الداخلية (SSRF Protection).');
+    }
     return { indicator: candidate, originalInput, indicatorType: 'ipv4' };
   }
   if (net.isIPv6(candidate)) {
+    if (isPrivateOrReservedIp(candidate)) {
+      securityMonitor.record({
+        eventType: 'SSRF_BLOCKED',
+        severity: 'high',
+        route: '/api/osint-probe',
+        method: 'POST',
+        detail: `Rejected private/reserved IPv6 probe target: ${candidate}`,
+      });
+      throw new Error('عنوان IPv6 الخاص أو المحلي مرفوض أمنياً لمنع فحص البنية الداخلية (SSRF Protection).');
+    }
     return { indicator: candidate, originalInput, indicatorType: 'ipv6' };
   }
   if (/^[a-fA-F0-9]{64}$/.test(candidate)) {
@@ -127,6 +152,21 @@ export function classifyIocIndicator(rawInput: string): {
   }
 
   const normalizedDomain = candidate.toLowerCase().replace(/^\.+|\.+$/g, '');
+  if (
+    normalizedDomain === 'localhost' ||
+    normalizedDomain.endsWith('.local') ||
+    normalizedDomain.endsWith('.internal') ||
+    normalizedDomain.endsWith('.localhost')
+  ) {
+    securityMonitor.record({
+      eventType: 'SSRF_BLOCKED',
+      severity: 'high',
+      route: '/api/osint-probe',
+      method: 'POST',
+      detail: `Rejected internal domain probe target: ${normalizedDomain}`,
+    });
+    throw new Error('النطاقات المحلية والداخلية محظورة أمنياً (SSRF Protection).');
+  }
   if (/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(normalizedDomain)) {
     return { indicator: normalizedDomain, originalInput, indicatorType: 'domain' };
   }
@@ -156,35 +196,11 @@ async function fetchIpGeo(ip: string): Promise<{
   info: Omit<LiveServerInfo, 'reverseDns'> | null;
   sourceStatus: 'ok' | 'unavailable';
 }> {
-  try {
-    const data = await fetchJsonWithTimeout(
-      `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,continent,country,countryCode,regionName,city,lat,lon,isp,org,as,asname,proxy,hosting,query`
-    );
-    if (data && data.status === 'success') {
-      return {
-        info: {
-          primaryIp: data.query || ip,
-          country: data.country || null,
-          countryCode: data.countryCode || null,
-          region: data.regionName || null,
-          city: data.city || null,
-          isp: data.isp || null,
-          org: data.org || data.asname || null,
-          asn: data.as || null,
-          isProxyOrVpn: typeof data.proxy === 'boolean' ? data.proxy : null,
-          isHosting: typeof data.hosting === 'boolean' ? data.hosting : null,
-          coordinates:
-            typeof data.lat === 'number' && typeof data.lon === 'number'
-              ? { lat: data.lat, lon: data.lon }
-              : null,
-        },
-        sourceStatus: 'ok',
-      };
-    }
-  } catch {
-    // fallback below
+  if (isPrivateOrReservedIp(ip)) {
+    return { info: null, sourceStatus: 'unavailable' };
   }
 
+  // Prefer HTTPS transport first
   try {
     const data = await fetchJsonWithTimeout(`https://ipwho.is/${encodeURIComponent(ip)}`);
     if (data && data.success) {
@@ -198,6 +214,33 @@ async function fetchIpGeo(ip: string): Promise<{
           isp: data.connection?.isp || null,
           org: data.connection?.org || null,
           asn: data.connection?.asn ? `AS${data.connection.asn}` : null,
+          isProxyOrVpn: null,
+          isHosting: null,
+          coordinates:
+            typeof data.latitude === 'number' && typeof data.longitude === 'number'
+              ? { lat: data.latitude, lon: data.longitude }
+              : null,
+        },
+        sourceStatus: 'ok',
+      };
+    }
+  } catch {
+    // unavailable
+  }
+
+  try {
+    const data = await fetchJsonWithTimeout(`https://ipapi.co/${encodeURIComponent(ip)}/json/`);
+    if (data && !data.error) {
+      return {
+        info: {
+          primaryIp: data.ip || ip,
+          country: data.country_name || null,
+          countryCode: data.country_code || null,
+          region: data.region || null,
+          city: data.city || null,
+          isp: data.org || null,
+          org: data.org || null,
+          asn: data.asn || null,
           isProxyOrVpn: null,
           isHosting: null,
           coordinates:
@@ -373,6 +416,16 @@ async function fetchDnsRecords(domain: string): Promise<LiveDnsRecords> {
 }
 
 async function fetchTlsCert(domain: string): Promise<LiveTlsCertificate | null> {
+  // Block TLS socket connections to domains resolving to private/loopback/metadata IPs (SSRF + DNS Rebinding Guard)
+  let publicIps: string[];
+  try {
+    publicIps = await assertHostnameResolvesPublic(domain);
+  } catch {
+    return null;
+  }
+  const pinnedIp = publicIps[0];
+  if (!pinnedIp) return null;
+
   return new Promise((resolve) => {
     let settled = false;
     const finish = (cert: LiveTlsCertificate | null) => {
@@ -385,7 +438,7 @@ async function fetchTlsCert(domain: string): Promise<LiveTlsCertificate | null> 
     try {
       const socket = tls.connect(
         {
-          host: domain,
+          host: pinnedIp,
           port: 443,
           servername: domain,
           rejectUnauthorized: false,
@@ -594,6 +647,21 @@ export async function gatherLiveOsintTelemetry(rawInput: string): Promise<LiveNe
   }
 
   if (indicatorType === 'domain') {
+    try {
+      await assertHostnameResolvesPublic(indicator);
+    } catch (ssrfErr: any) {
+      if (String(ssrfErr?.message || '').includes('SSRF_BLOCKED')) {
+        securityMonitor.record({
+          eventType: 'SSRF_BLOCKED',
+          severity: 'high',
+          route: '/api/osint-probe',
+          method: 'POST',
+          detail: `Domain "${indicator}" resolved to internal/reserved IP address`,
+        });
+        throw new Error('النطاق يشير إلى عنوان شبكة داخلي أو محجوز (SSRF Protection).');
+      }
+    }
+
     const [dnsRecords, rdapRes, tlsCert] = await Promise.all([
       fetchDnsRecords(indicator),
       fetchRdapInfo('domain', indicator),

@@ -132,6 +132,7 @@ import {
   type ReportClassification,
   type ForensicDossierInput
 } from './utils/reportGenerator';
+import { apiUrl } from './utils/apiBase';
 import { 
   useUpdateChecker, 
   UpdateBanner, 
@@ -146,20 +147,20 @@ import {
   ExportMobilePackageButton,
   MobilePackageExportModal
 } from './components/MobilePackageExporter';
+import {
+  MasterPasswordGate
+} from './components/MasterPasswordGate';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
   auth, 
   db, 
   storage, 
-  googleProvider, 
   firebaseConfig,
   isUsingCustomFirebaseConfig,
   parseFirebaseConfigInput,
   saveCustomFirebaseConfig,
   resetCustomFirebaseConfig,
-  signInWithPopup, 
-  signInWithRedirect,
   signOut, 
   handleFirestoreError, 
   OperationType,
@@ -174,6 +175,18 @@ import {
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, getDocs, query, where, orderBy, limit, Timestamp, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import {
+  sanitizeSafeHref,
+  isRegexSafe,
+  hashPinPbkdf2,
+  verifyPinAgainstStoredHash,
+  getPinLockoutRemainingSec,
+  recordFailedPinAttempt,
+  clearPinFailureCounter,
+  reportClientSecurityEvent,
+  isMasterSessionUnlocked,
+  setMasterSessionUnlocked,
+} from './utils/clientSecurity';
 
 interface AuditLogEntry {
   id: string;
@@ -357,15 +370,30 @@ const formatTimestampSafe = (ts?: string, mode: 'datetime' | 'time' = 'datetime'
 };
 
 export default function App() {
+  const [isMasterUnlocked, setIsMasterUnlocked] = useState<boolean>(() => isMasterSessionUnlocked());
+
+  const handleUnlockMasterSystem = () => {
+    setMasterSessionUnlocked(true);
+    setIsMasterUnlocked(true);
+  };
+
+  const handleLockMasterSystem = () => {
+    setMasterSessionUnlocked(false);
+    setIsMasterUnlocked(false);
+  };
+
+  if (!isMasterUnlocked) {
+    return <MasterPasswordGate onUnlock={handleUnlockMasterSystem} />;
+  }
+
+  return <SovereignForensicWorkspace onLockSystem={handleLockMasterSystem} />;
+}
+
+function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void }) {
   const update = useUpdateChecker();
-  // Cryptographic SHA-256 PIN Hasher
+  // Cryptographic PBKDF2-HMAC-SHA256 PIN Hasher (with per-PIN CSPRNG salt)
   const hashPin = async (pin: string): Promise<string> => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(`sovereign_pin_secure_salt_${pin}`);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    return hashPinPbkdf2(pin);
   };
 
   // Panic Lock & Auto-Lock State
@@ -402,20 +430,20 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports'>('dashboard');
   const [user, setUser] = useState<User | null>(() => ({
-    uid: 'sovereign-analyst-master-007',
-    email: 'analyst@sovereign.forensic',
-    displayName: 'كبير المحققين السياديين',
-    emailVerified: true,
+    uid: 'sovereign-analyst-local',
+    email: 'analyst@sovereign.local',
+    displayName: 'المحقق السيادي (وضع محلي)',
+    emailVerified: false,
     isAnonymous: false,
     tenantId: null,
     providerData: [],
-    getIdToken: async () => 'mock-token'
+    getIdToken: async () => ''
   } as unknown as User));
   const [userProfile, setUserProfile] = useState<UserProfile | null>({
-    uid: 'sovereign-analyst-master-007',
-    email: 'analyst@sovereign.forensic',
-    displayName: 'كبير المحققين السياديين',
-    role: 'admin',
+    uid: 'sovereign-analyst-local',
+    email: 'analyst@sovereign.local',
+    displayName: 'المحقق السيادي (وضع محلي)',
+    role: 'analyst',
     createdAt: new Date().toISOString(),
     settings: {}
   });
@@ -461,14 +489,51 @@ export default function App() {
       return;
     }
 
+    const activeUid = user?.uid || 'local';
+    const remainingSec = getPinLockoutRemainingSec(activeUid);
+    if (remainingSec > 0) {
+      setPinError(`تم قفل التحقق مؤقتاً لحماية الحساب بعد محاولات فاشلة متكررة. انتظر ${remainingSec} ثانية.`);
+      setEnteredPin('');
+      return;
+    }
+
     try {
-      const hashedInput = await hashPin(enteredPin);
-      if (hashedInput === userPinHash) {
+      const verification = await verifyPinAgainstStoredHash(enteredPin, userPinHash);
+      if (verification.valid) {
+        clearPinFailureCounter(activeUid);
         setIsLocked(false);
         setEnteredPin('');
         setPinError(null);
+
+        // Seamless upgrade from legacy SHA-256 to PBKDF2-HMAC-SHA256
+        if (verification.needsMigrationToPbkdf2 && user) {
+          try {
+            const upgradedHash = await hashPinPbkdf2(enteredPin);
+            localStorage.setItem(`sovereign_pin_${user.uid}`, upgradedHash);
+            const updatedSettings = {
+              ...(userProfile?.settings || {}),
+              pinHash: upgradedHash,
+              pinUpdatedAt: new Date().toISOString(),
+            };
+            setUserProfile((prev) => (prev ? { ...prev, settings: updatedSettings } : null));
+            if (auth.currentUser) {
+              void updateDoc(doc(db, 'users', auth.currentUser.uid), { settings: updatedSettings }).catch(() => {});
+            }
+          } catch {}
+        }
       } else {
-        setPinError('رمز PIN غير صحيح. يرجى إعادة المحاولة.');
+        const failState = recordFailedPinAttempt(activeUid);
+        if (failState.lockedSeconds > 0) {
+          setPinError(`تم حظر المحاولات لمدة ${failState.lockedSeconds} ثانية بعد ${failState.failedAttempts} محاولات فاشلة.`);
+          const tok = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
+          void reportClientSecurityEvent({
+            eventType: 'CLIENT_PIN_LOCKOUT',
+            detail: `Panic Lock PIN temporarily locked after ${failState.failedAttempts} failed attempts`,
+            idToken: tok,
+          });
+        } else {
+          setPinError(`رمز PIN غير صحيح (المحاولة ${failState.failedAttempts} من 5 قبل القفل المؤقت).`);
+        }
         setEnteredPin('');
       }
     } catch (err) {
@@ -663,7 +728,6 @@ export default function App() {
   const [authName, setAuthName] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
   const [showCustomFirebasePanel, setShowCustomFirebasePanel] = useState<boolean>(false);
   const [customFirebaseRaw, setCustomFirebaseRaw] = useState<string>('');
   const [customFirebaseError, setCustomFirebaseError] = useState<string | null>(null);
@@ -675,13 +739,33 @@ export default function App() {
   const [imageName, setImageName] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<ForensicResult | null>(null);
+  const dedupeAuditLogs = (entries: AuditLogEntry[]): AuditLogEntry[] => {
+    const sorted = [...entries].sort(
+      (a, b) => getTimeMsSafe(b.timestamp) - getTimeMsSafe(a.timestamp)
+    );
+    const seenIds = new Set<string>();
+    const unique: AuditLogEntry[] = [];
+    for (const entry of sorted) {
+      const normalizedId = typeof entry?.id === 'string' ? entry.id.trim() : '';
+      if (!normalizedId || seenIds.has(normalizedId)) continue;
+      seenIds.add(normalizedId);
+      unique.push({ ...entry, id: normalizedId });
+    }
+    return unique;
+  };
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('siyadi_audit_logs') || '[]');
+      const raw = JSON.parse(localStorage.getItem('siyadi_audit_logs') || '[]');
+      return Array.isArray(raw) ? dedupeAuditLogs(raw) : [];
     } catch {
       return [];
     }
   });
+  const auditLogsRef = React.useRef<AuditLogEntry[]>(auditLogs);
+  const inFlightFeedEscalationsRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    auditLogsRef.current = auditLogs;
+  }, [auditLogs]);
   const [elaSlider, setElaSlider] = useState<number>(30);
   const [elaQuality, setElaQuality] = useState<number>(75);
   const [elaMode, setElaMode] = useState<'heatmap' | 'rgb' | 'grayscale'>('heatmap');
@@ -1396,10 +1480,11 @@ export default function App() {
             synced: true
           });
         });
-        cloudLogs.sort((a, b) => getTimeMsSafe(b.timestamp) - getTimeMsSafe(a.timestamp));
-        setAuditLogs(cloudLogs);
+        const dedupedLogs = dedupeAuditLogs(cloudLogs);
+        auditLogsRef.current = dedupedLogs;
+        setAuditLogs(dedupedLogs);
         try {
-          localStorage.setItem('siyadi_audit_logs', JSON.stringify(cloudLogs.slice(0, 100)));
+          localStorage.setItem('siyadi_audit_logs', JSON.stringify(dedupedLogs.slice(0, 100)));
         } catch (_) {}
       },
       (error) => {
@@ -1568,11 +1653,11 @@ export default function App() {
     if (code === 'auth/popup-blocked') return 'المتصفح منع فتح نافذة تسجيل الدخول. يرجى السماح بالنوافذ المنبثقة (Popups).';
     if (code === 'auth/popup-closed-by-user') return 'تم إغلاق نافذة تسجيل الدخول قبل إتمام العملية.';
     if (code === 'auth/cancelled-popup-request') return 'تم إلغاء طلب نافذة تسجيل الدخول بسبب فتح نافذة أخرى.';
-    if (code === 'auth/account-exists-with-different-credential') return 'هذا البريد مرتبط بمزود دخول آخر. يرجى استخدام Google للمتابعة.';
+    if (code === 'auth/account-exists-with-different-credential') return 'هذا البريد مرتبط بطريقة دخول أخرى.';
     if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
     if (code === 'auth/email-already-in-use') return 'هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.';
     if (code === 'auth/weak-password') return 'كلمة المرور ضعيفة جداً (يجب أن لا تقل عن 6 أحرف).';
-    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول هذا غير مفعل حالياً في إعدادات Firebase. يرجى تسجيل الدخول عبر Google.';
+    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول هذا غير مفعل حالياً في إعدادات Firebase.';
     if (code === 'auth/network-request-failed') return 'تعذر الاتصال بخوادم المصادقة. تحقق من اتصال الإنترنت.';
     return msg || fallback;
   };
@@ -1607,41 +1692,6 @@ export default function App() {
       setResetSent(true);
     } catch (err: any) {
       setAuthError(formatAuthError(err, 'خطأ في إرسال رابط الاستعادة.'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    setAuthLoading(true);
-    setAuthError(null);
-    setUnauthorizedDomainHost(null);
-    try {
-      await signInWithPopup(auth, googleProvider);
-      notifyStatus('تم ربط حسابك وتفعيل المزامنة المباشرة مع قاعدة بيانات Firestore.', 'success');
-    } catch (err: any) {
-      console.error('Google Sign In Error:', err);
-      if (err?.code === 'auth/popup-blocked') {
-        try {
-          await signInWithRedirect(auth, googleProvider);
-          return;
-        } catch (redirectErr: any) {
-          const rMsg = formatAuthError(redirectErr, 'تعذر فتح نافذة تسجيل الدخول.');
-          setAuthError(rMsg);
-          notifyStatus(rMsg, 'warning');
-          return;
-        }
-      }
-      if (err?.code === 'auth/unauthorized-domain') {
-        const host = window.location.hostname || 'github.io';
-        setUnauthorizedDomainHost(host);
-        setActiveTab('profile');
-        notifyStatus(`لتفعيل Google Sync على (${host}) أضفه في Firebase Authorized Domains — المختبرات المحلية تعمل بالكامل.`, 'warning');
-        return;
-      }
-      const msg = formatAuthError(err, 'تعذر تسجيل الدخول عبر Google.');
-      setAuthError(msg);
-      notifyStatus(msg, 'warning');
     } finally {
       setAuthLoading(false);
     }
@@ -1688,22 +1738,24 @@ export default function App() {
 
   const updateProfileData = async (data: Partial<UserProfile>) => {
     if (!user || !userProfile) return;
+    // Strip immutable server-controlled fields to enforce defense-in-depth on profile updates
+    const { role: _ignoredRole, uid: _ignoredUid, createdAt: _ignoredCreated, ...safeData } = data as Record<string, any>;
     if (!auth.currentUser) {
-      setUserProfile({ ...userProfile, ...data });
+      setUserProfile({ ...userProfile, ...safeData });
       return;
     }
     try {
       const profileRef = doc(db, 'users', auth.currentUser.uid);
-      await updateDoc(profileRef, data);
-      setUserProfile({ ...userProfile, ...data });
-      if (data.displayName) await updateProfile(auth.currentUser, { displayName: data.displayName });
-      const changedFields = Object.keys(data).join(', ');
+      await updateDoc(profileRef, safeData);
+      setUserProfile({ ...userProfile, ...safeData });
+      if (safeData.displayName) await updateProfile(auth.currentUser, { displayName: String(safeData.displayName).slice(0, 128) });
+      const changedFields = Object.keys(safeData).join(', ');
       await recordCustodyLedgerBlock(
         `settings-${auth.currentUser.uid}`,
         'SETTINGS_CHANGE',
         `تعديل إعدادات الملف الشخصي (${changedFields})`,
         'لوحة إدارة الحساب والإعدادات',
-        data.displayName ? `تحديث الاسم المعروض إلى: ${data.displayName}` : 'تحديث بيانات وإعدادات الحساب في Firestore'
+        safeData.displayName ? `تحديث الاسم المعروض إلى: ${safeData.displayName}` : 'تحديث بيانات وإعدادات الحساب في Firestore'
       );
       notifyStatus('تم تحديث الملف الشخصي وتوثيق التعديل في سلسلة الحفظ على Firestore.', 'success');
     } catch (err) {
@@ -1727,10 +1779,19 @@ export default function App() {
   const handleProfilePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !auth.currentUser) {
-      if (!auth.currentUser) notifyStatus('يرجى ربط حساب Google لرفع الصورة إلى التخزين السحابي.', 'warning');
+      if (!auth.currentUser) notifyStatus('المصادقة السحابية مطلوبة لرفع الصورة إلى التخزين السحابي.', 'warning');
       return;
     }
-    
+
+    if (!file.type || !file.type.startsWith('image/')) {
+      notifyStatus('يُسمح فقط برفع ملفات الصور الصالحة للملف الشخصي.', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      notifyStatus('حجم الصورة يتجاوز الحد الأقصى المسموح به (5 MB).', 'error');
+      return;
+    }
+
     try {
       const storagePath = `profiles/${auth.currentUser.uid}/avatar_${Date.now()}`;
       const fileRef = ref(storage, storagePath);
@@ -2042,7 +2103,7 @@ export default function App() {
       let loaded = false;
       try {
         const token = await activeUser.getIdToken();
-        const res = await fetch('/api/dashboard-stats', {
+        const res = await fetch(apiUrl('/api/dashboard-stats'), {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
@@ -2228,7 +2289,7 @@ export default function App() {
 
   const runFullHealthCheck = async () => {
     if (!auth.currentUser) {
-      notifyStatus('يرجى تسجيل الدخول عبر Google أولاً لاختبار تكامل Firestore و Storage.', 'warning');
+      notifyStatus('يتطلب اختبار تكامل Firestore و Storage تفعيل جلسة سحابية مصادق عليها.', 'warning');
       return;
     }
     setIsTestingHealth(true);
@@ -2292,15 +2353,20 @@ export default function App() {
       synced: Boolean(auth.currentUser)
     };
 
+    const alreadyInCloudFeedLog =
+      localEntry.id.startsWith('feed-') &&
+      auditLogsRef.current.some((item) => item.id === localEntry.id && item.synced);
+
     setAuditLogs(prev => {
-      const updated = [localEntry, ...prev.filter(item => item.id !== localEntry.id)];
+      const updated = dedupeAuditLogs([localEntry, ...prev.filter(item => item.id !== localEntry.id)]);
+      auditLogsRef.current = updated;
       try {
         localStorage.setItem('siyadi_audit_logs', JSON.stringify(updated.slice(0, 100)));
       } catch (_) {}
       return updated;
     });
 
-    if (auth.currentUser) {
+    if (auth.currentUser && !alreadyInCloudFeedLog) {
       try {
         await addDoc(collection(db, 'audit_logs'), {
           id: localEntry.id,
@@ -2681,6 +2747,16 @@ export default function App() {
     if (!patternInput.trim()) {
       setCustomRegexError('يرجى إدخال تعبير نمطي (RegEx) صحيح.');
       setCustomRegexMatches([]);
+      return;
+    }
+    const regexSafety = isRegexSafe(patternInput);
+    if (!regexSafety.safe) {
+      setCustomRegexError(regexSafety.reason || 'تعبير نمطي غير آمن.');
+      setCustomRegexMatches([]);
+      void reportClientSecurityEvent({
+        eventType: 'SUSPICIOUS_INPUT',
+        detail: 'Blocked potentially catastrophic ReDoS regular expression in Log Parser',
+      });
       return;
     }
     if (!textInput.trim()) {
@@ -3099,10 +3175,14 @@ export default function App() {
       throw new Error('Firebase Auth required for cloud storage');
     }
 
-    const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const totalSize = fileData instanceof Blob ? fileData.size : fileData.byteLength;
+    if (totalSize > 25 * 1024 * 1024) {
+      throw new Error('حجم الدليل يتجاوز الحد الأمني لـ Firebase Storage (25 MB).');
+    }
+
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
     const storagePath = `evidence/${auth.currentUser.uid}/${currentInvestigationId || 'default'}/${Date.now()}_${sanitizedName}`;
     const fileRef = ref(storage, storagePath);
-    const totalSize = fileData instanceof Blob ? fileData.size : fileData.byteLength;
 
     setStorageUploadState({
       active: true,
@@ -3472,7 +3552,7 @@ export default function App() {
         if (saved.storageStatus === 'cloud') {
           notifyStatus('تم فحص البصمة والـ Hex محلياً ورفع الدليل إلى Firebase Storage وحفظه في Firestore.', 'success');
         } else {
-          notifyStatus('تم فحص البصمة SHA-256 وقراءة Hex Bytes محلياً. سجّل الدخول بـ Google للمزامنة مع Storage.', 'warning');
+          notifyStatus('تم فحص البصمة SHA-256 وقراءة Hex Bytes محلياً بنجاح.', 'success');
           setStorageUploadState({
             active: false,
             fileName,
@@ -3480,7 +3560,7 @@ export default function App() {
             bytesTransferred: fileSize,
             totalBytes: fileSize,
             status: 'done',
-            message: 'تم الفحص المحلي وحساب SHA-256 بنجاح (الوضع المحلي — قم بتسجيل الدخول لـ Google للرفع السحابي).'
+            message: 'تم الفحص المحلي وحساب SHA-256 بنجاح (الوضع المحلي المعزول).'
           });
         }
       }
@@ -3501,7 +3581,7 @@ export default function App() {
 
   const syncEvidenceToCloud = async (ev: Evidence) => {
     if (!auth.currentUser) {
-      notifyStatus('يرجى تسجيل الدخول عبر Google أولاً للرفع إلى Firebase Storage و Firestore.', 'warning');
+      notifyStatus('المصادقة السحابية مطلوبة للرفع إلى Firebase Storage و Firestore.', 'warning');
       return;
     }
 
@@ -3940,7 +4020,7 @@ export default function App() {
     setApkError(null);
     setApkAnalyzing(true);
     try {
-      const res = await fetch('/api/analyze-apk', {
+      const res = await fetch(apiUrl('/api/analyze-apk'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apkData: staticData })
@@ -4146,7 +4226,7 @@ export default function App() {
     setBrowserError(null);
     setBrowserAnalyzing(true);
     try {
-      const res = await fetch('/api/analyze-browser-history', {
+      const res = await fetch(apiUrl('/api/analyze-browser-history'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ historyData: staticData }),
@@ -4374,7 +4454,7 @@ export default function App() {
     setThreatIntelResult(null);
 
     try {
-      const res = await fetch('/api/threat-intel', {
+      const res = await fetch(apiUrl('/api/threat-intel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ indicator: target }),
@@ -4549,7 +4629,7 @@ export default function App() {
     setDnsLookupError(null);
 
     try {
-      const res = await fetch('/api/dns-ip-lookup', {
+      const res = await fetch(apiUrl('/api/dns-ip-lookup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target }),
@@ -4750,7 +4830,7 @@ export default function App() {
     setScriptError(null);
     setScriptAnalyzing(true);
     try {
-      const res = await fetch('/api/analyze-script', {
+      const res = await fetch(apiUrl('/api/analyze-script'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -5000,7 +5080,7 @@ export default function App() {
     setBinaryLabError(null);
     setBinaryLabAnalyzing(true);
     try {
-      const res = await fetch('/api/analyze-binary', {
+      const res = await fetch(apiUrl('/api/analyze-binary'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -5268,97 +5348,123 @@ export default function App() {
     },
     silent = false
   ) => {
-    const payloadStr = JSON.stringify(item, null, 2);
-    const encoded = new TextEncoder().encode(payloadStr);
-    const digestBuf = await crypto.subtle.digest('SHA-256', encoded);
-    const sha256Hex = Array.from(new Uint8Array(digestBuf))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    const isCritOrHigh = item.severity === 'critical' || item.severity === 'high';
-    const threatScore = item.severity === 'critical' ? 92 : item.severity === 'high' ? 76 : 35;
-    const authenticityScore = isCritOrHigh ? Math.min(45, 100 - threatScore) : 80;
-    const verdictText = `[تغذية حية: ${item.sourceName}] ${item.indicator} — ${item.title.slice(0, 90)}`;
-
-    await saveAuditLog(
-      {
-        id: 'feed-' + item.id.slice(0, 8),
-        timestamp: new Date().toISOString(),
-        fileName: `تغذية حية (${item.sourceName}): ${item.indicator}`,
-        fileSize: item.category,
-        verdict: verdictText,
-        score: authenticityScore,
-        risk: item.severityAr,
-        type: 'clipboard',
-        sha256: sha256Hex,
-      },
-      { fileSizeRaw: encoded.byteLength, aiProbability: threatScore }
-    );
-
-    if (item.severity === 'critical' || !silent) {
-      const feedForensicResult: ForensicResult = {
-        fileName: `LIVE-FEED-${item.indicator}.json`,
-        fileSize: encoded.byteLength,
-        fileSizeFormatted: formatFileSize(encoded.byteLength),
-        lastModified: item.publishedAt,
-        mimeType: 'application/vnd.sovereign.live-feed+json',
-        width: 0,
-        height: 0,
-        sha256: sha256Hex,
-        sha1: sha256Hex.substring(0, 40),
-        sha512: sha256Hex + sha256Hex,
-        md5: sha256Hex.substring(0, 32),
-        hexBytes: [],
-        detectedFileType: `مؤشر تغذية أمنية حية (${item.category})`,
-        expectedExtensions: ['json'],
-        exif: {
-          hasExif: false,
-          message: `Source: ${item.sourceName} | Indicator: ${item.indicator} | Published: ${item.publishedAt}`,
-        },
-        laplacianVariance: 0,
-        sensorGrainNoise: 0,
-        elaScore: 0,
-        aiProbability: threatScore,
-        authenticityScore,
-        verdict: verdictText,
-        riskLevel: item.severityAr,
-        localReport: {
-          verdict: item.title,
-          riskLevel: item.severityAr,
-          detailedReport: item.summary,
-          indicators: [item.indicator, item.sourceName, item.link].filter(Boolean),
-        },
-        entropy: 4.2,
-        entropyClassification: 'مؤشر تغذية تهديدات مفتوحة (Live Feed)',
-        headerHex: '7B 0A 20 20 22 69 64 22',
-        isMasqueraded: false,
-        masqueradeWarning: null,
-      };
-
-      await saveEvidenceToCloud(
-        `LIVE-FEED-${item.indicator}.json`,
-        encoded.byteLength,
-        'application/vnd.sovereign.live-feed+json',
-        sha256Hex,
-        sha256Hex.substring(0, 40),
-        sha256Hex + sha256Hex,
-        sha256Hex.substring(0, 32),
-        feedForensicResult,
-        encoded.buffer,
-        ''
-      );
-
-      await recordCustodyLedgerBlock(
-        `feed-${sha256Hex.substring(0, 14)}`,
-        'LOG_ANALYSIS',
-        `مزامنة ورصد تهديد حي (${item.indicator} من ${item.sourceName})`,
-        'نظام جلب البيانات والتحديث التلقائي (Live Feeds)',
-        `العنوان: ${item.title.slice(0, 180)} | الخطورة: ${item.severityAr} | الرابط: ${item.link || 'N/A'}`
-      );
+    const feedLogId = 'feed-' + item.id.slice(0, 8);
+    if (
+      inFlightFeedEscalationsRef.current.has(feedLogId) ||
+      auditLogsRef.current.some((log) => log.id === feedLogId)
+    ) {
+      if (!silent) {
+        notifyStatus(`المؤشر الحي (${item.indicator}) مُصعَّد مسبقاً في سجل العمليات والتهديدات.`, 'success');
+      }
+      return;
     }
 
-    if (!silent) {
-      notifyStatus(`تم تصعيد المؤشر الحي (${item.indicator}) إلى سجل العمليات والتهديدات فوراً.`, 'warning');
+    inFlightFeedEscalationsRef.current.add(feedLogId);
+    try {
+      const payloadStr = JSON.stringify(item, null, 2);
+      const encoded = new TextEncoder().encode(payloadStr);
+      const digestBuf = await crypto.subtle.digest('SHA-256', encoded);
+      const sha256Hex = Array.from(new Uint8Array(digestBuf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      const alreadyEscalated = auditLogsRef.current.some(
+        (log) => log.id === feedLogId || (log.sha256 && log.sha256 === sha256Hex)
+      );
+      if (alreadyEscalated) {
+        if (!silent) {
+          notifyStatus(`المؤشر الحي (${item.indicator}) مُصعَّد مسبقاً في سجل العمليات والتهديدات.`, 'success');
+        }
+        return;
+      }
+
+      const isCritOrHigh = item.severity === 'critical' || item.severity === 'high';
+      const threatScore = item.severity === 'critical' ? 92 : item.severity === 'high' ? 76 : 35;
+      const authenticityScore = isCritOrHigh ? Math.min(45, 100 - threatScore) : 80;
+      const verdictText = `[تغذية حية: ${item.sourceName}] ${item.indicator} — ${item.title.slice(0, 90)}`;
+
+      await saveAuditLog(
+        {
+          id: feedLogId,
+          timestamp: new Date().toISOString(),
+          fileName: `تغذية حية (${item.sourceName}): ${item.indicator}`,
+          fileSize: item.category,
+          verdict: verdictText,
+          score: authenticityScore,
+          risk: item.severityAr,
+          type: 'clipboard',
+          sha256: sha256Hex,
+        },
+        { fileSizeRaw: encoded.byteLength, aiProbability: threatScore }
+      );
+
+      if (item.severity === 'critical' || !silent) {
+        const feedForensicResult: ForensicResult = {
+          fileName: `LIVE-FEED-${item.indicator}.json`,
+          fileSize: encoded.byteLength,
+          fileSizeFormatted: formatFileSize(encoded.byteLength),
+          lastModified: item.publishedAt,
+          mimeType: 'application/vnd.sovereign.live-feed+json',
+          width: 0,
+          height: 0,
+          sha256: sha256Hex,
+          sha1: sha256Hex.substring(0, 40),
+          sha512: sha256Hex + sha256Hex,
+          md5: sha256Hex.substring(0, 32),
+          hexBytes: [],
+          detectedFileType: `مؤشر تغذية أمنية حية (${item.category})`,
+          expectedExtensions: ['json'],
+          exif: {
+            hasExif: false,
+            message: `Source: ${item.sourceName} | Indicator: ${item.indicator} | Published: ${item.publishedAt}`,
+          },
+          laplacianVariance: 0,
+          sensorGrainNoise: 0,
+          elaScore: 0,
+          aiProbability: threatScore,
+          authenticityScore,
+          verdict: verdictText,
+          riskLevel: item.severityAr,
+          localReport: {
+            verdict: item.title,
+            riskLevel: item.severityAr,
+            detailedReport: item.summary,
+            indicators: [item.indicator, item.sourceName, item.link].filter(Boolean),
+          },
+          entropy: 4.2,
+          entropyClassification: 'مؤشر تغذية تهديدات مفتوحة (Live Feed)',
+          headerHex: '7B 0A 20 20 22 69 64 22',
+          isMasqueraded: false,
+          masqueradeWarning: null,
+        };
+
+        await saveEvidenceToCloud(
+          `LIVE-FEED-${item.indicator}.json`,
+          encoded.byteLength,
+          'application/vnd.sovereign.live-feed+json',
+          sha256Hex,
+          sha256Hex.substring(0, 40),
+          sha256Hex + sha256Hex,
+          sha256Hex.substring(0, 32),
+          feedForensicResult,
+          encoded.buffer,
+          ''
+        );
+
+        await recordCustodyLedgerBlock(
+          `feed-${sha256Hex.substring(0, 14)}`,
+          'LOG_ANALYSIS',
+          `مزامنة ورصد تهديد حي (${item.indicator} من ${item.sourceName})`,
+          'نظام جلب البيانات والتحديث التلقائي (Live Feeds)',
+          `العنوان: ${item.title.slice(0, 180)} | الخطورة: ${item.severityAr} | الرابط: ${item.link || 'N/A'}`
+        );
+      }
+
+      if (!silent) {
+        notifyStatus(`تم تصعيد المؤشر الحي (${item.indicator}) إلى سجل العمليات والتهديدات فوراً.`, 'warning');
+      }
+    } finally {
+      inFlightFeedEscalationsRef.current.delete(feedLogId);
     }
   };
 
@@ -5367,7 +5473,7 @@ export default function App() {
     setLiveFeedsSyncing(true);
     setLiveFeedsError(null);
     try {
-      const res = await fetch('/api/live-feeds/sync', {
+      const res = await fetch(apiUrl('/api/live-feeds/sync'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -5428,7 +5534,7 @@ export default function App() {
     setLiveFeedsBriefingLoading(true);
     setLiveFeedsError(null);
     try {
-      const res = await fetch('/api/live-feeds/briefing', {
+      const res = await fetch(apiUrl('/api/live-feeds/briefing'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: liveFeedsResult.items.slice(0, 18) }),
@@ -5459,15 +5565,27 @@ export default function App() {
   const addCustomLiveFeedSource = (e: React.FormEvent) => {
     e.preventDefault();
     const urlTrim = newCustomFeedUrl.trim();
-    if (!urlTrim) return;
+    if (!urlTrim || urlTrim.length > 500) return;
     try {
       const parsed = new URL(urlTrim);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         setLiveFeedsError('يجب أن يبدأ رابط التغذية بـ https:// أو http://');
         return;
       }
-      const label = newCustomFeedName.trim() || parsed.hostname;
-      const next = [{ name: label, url: urlTrim }, ...customLiveFeeds.filter((c) => c.url !== urlTrim)].slice(0, 8);
+      const hostLower = parsed.hostname.toLowerCase();
+      if (
+        hostLower === 'localhost' ||
+        hostLower === '127.0.0.1' ||
+        hostLower === '::1' ||
+        hostLower.endsWith('.local') ||
+        hostLower.endsWith('.internal') ||
+        /^10\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\./.test(hostLower)
+      ) {
+        setLiveFeedsError('الرابط محظور أمنياً: لا يُسمح بإضافة عناوين شبكات محلية أو داخلية (SSRF Protection).');
+        return;
+      }
+      const label = (newCustomFeedName.trim() || parsed.hostname).slice(0, 80);
+      const next = [{ name: label, url: parsed.toString() }, ...customLiveFeeds.filter((c) => c.url !== parsed.toString())].slice(0, 5);
       setCustomLiveFeeds(next);
       localStorage.setItem('sovereign_custom_live_feeds', JSON.stringify(next));
       setNewCustomFeedName('');
@@ -5500,7 +5618,7 @@ export default function App() {
   // Load Live Feeds Catalog & Perform Initial Real Sync + Automated Interval Countdown
   useEffect(() => {
     let mounted = true;
-    fetch('/api/live-feeds/catalog')
+    fetch(apiUrl('/api/live-feeds/catalog'))
       .then((r) => r.json())
       .then((d) => {
         if (mounted && Array.isArray(d?.feeds)) setLiveFeedsCatalog(d.feeds);
@@ -5561,7 +5679,7 @@ export default function App() {
       }
 
       // 2. Search OSINT (Threat Hunting Daemon)
-      const res = await fetch('/api/search', {
+      const res = await fetch(apiUrl('/api/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery })
@@ -5735,8 +5853,8 @@ export default function App() {
             </button>
           </div>
 
-          {/* Cloud Sync / Firestore Indicator */}
-          {isCloudAuthenticated ? (
+          {/* Cloud Sync / Local Mode Indicator */}
+          {isCloudAuthenticated && (
             <div
               title="متصل بقاعدة بيانات Firestore السحابية والمصادقة الفعلية"
               className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg font-sans font-bold"
@@ -5744,17 +5862,18 @@ export default function App() {
               <Cloud className="w-3.5 h-3.5" />
               <span className="text-[10px]">Firestore متصل</span>
             </div>
-          ) : (
-            <button
-              onClick={handleGoogleSignIn}
-              disabled={authLoading}
-              title="ربط حساب Google لحفظ الأدلة وسلاسل الحيازة في قاعدة بيانات Firestore"
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-[#D4AF37] border border-[#D4AF37]/40 rounded-lg font-sans font-bold transition cursor-pointer"
-            >
-              <CloudOff className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline text-[10px]">مزامنة Firestore</span>
-            </button>
           )}
+
+          {/* Master System Lock Button */}
+          <button
+            type="button"
+            onClick={onLockSystem}
+            title="قفل النظام والعودة لشاشة القفل الرئيسية"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-lg transition font-sans font-bold cursor-pointer shrink-0"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span className="text-[11px] whitespace-nowrap">قفل النظام</span>
+          </button>
 
           {/* Panic Lock Button */}
           <button
@@ -6135,21 +6254,6 @@ export default function App() {
                     className="w-full py-3.5 bg-gradient-to-r from-[#D4AF37] to-[#b8972e] text-gray-950 font-bold rounded-xl shadow-lg hover:opacity-95 transition disabled:opacity-50"
                   >
                     {authLoading ? 'جاري المعالجة...' : authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء الحساب الجديد'}
-                  </button>
-
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-800"></div></div>
-                    <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-tighter"><span className="bg-gray-900 px-3 text-gray-600">أو عبر المزودين</span></div>
-                  </div>
-
-                  <button 
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={authLoading}
-                    className="w-full py-3.5 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl border border-gray-700 transition flex items-center justify-center gap-3 disabled:opacity-50"
-                  >
-                    <UserIcon className="w-4 h-4" />
-                    المتابعة عبر Google
                   </button>
 
                   <div className="pt-2 border-t border-gray-800">
@@ -6638,8 +6742,8 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-800">
-                        {auditLogs.slice(0, 5).map(log => (
-                          <tr key={log.id} className="bg-transparent hover:bg-gray-800/30 transition">
+                        {auditLogs.slice(0, 5).map((log, idx) => (
+                          <tr key={`${log.id}-${idx}`} className="bg-transparent hover:bg-gray-800/30 transition">
                             <td className="px-4 py-3 text-white font-medium">{log.fileName}</td>
                             <td className="px-4 py-3 text-gray-400 text-xs">{formatTimestampSafe(log.timestamp, 'time')}</td>
                             <td className="px-4 py-3">
@@ -7403,7 +7507,7 @@ export default function App() {
                       <ul className="space-y-2">
                         {searchResult.sources.map((src, i) => (
                           <li key={i} className="text-xs text-[#D4AF37]">
-                            <a href={src.uri} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-1.5">
+                            <a href={sanitizeSafeHref(src.uri)} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1.5">
                               <Globe className="w-3 h-3" />
                               {src.title} ({src.uri})
                             </a>
@@ -8387,7 +8491,7 @@ export default function App() {
                     : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                 }`}>
                   {isCloudAuthenticated ? <Cloud className="w-4 h-4" /> : <CloudOff className="w-4 h-4" />}
-                  {isCloudAuthenticated ? 'Firebase Storage متصل ومفعل' : 'الوضع المحلي (سجّل بـ Google للرفع السحابي)'}
+                  {isCloudAuthenticated ? 'Firebase Storage متصل ومفعل' : 'الوضع المحلي المعزول (فحص تشفيري محلي)'}
                 </div>
               </div>
 
@@ -8767,7 +8871,7 @@ export default function App() {
                                 )}
                                 {ev.fileUrl && (
                                   <a 
-                                    href={ev.fileUrl} 
+                                    href={sanitizeSafeHref(ev.fileUrl, true)} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="p-1.5 bg-gray-800 hover:bg-blue-500 hover:text-white rounded-md transition"
@@ -8898,8 +9002,8 @@ export default function App() {
                         log.sha256.toLowerCase().includes(auditSearchQuery.toLowerCase()) ||
                         log.verdict.toLowerCase().includes(auditSearchQuery.toLowerCase())
                       )
-                      .map((log) => (
-                        <tr key={log.id} className="hover:bg-gray-800/30 transition">
+                      .map((log, idx) => (
+                        <tr key={`${log.id}-${idx}`} className="hover:bg-gray-800/30 transition">
                           <td className="p-3 font-mono text-gray-400 whitespace-nowrap">{formatTimestampSafe(log.timestamp)}</td>
                           <td className="p-3 font-medium text-white">{log.fileName}</td>
                           <td className="p-3 font-mono text-[10px] text-[#D4AF37]">
@@ -9074,81 +9178,41 @@ export default function App() {
                     <div className="pt-4 border-t border-gray-800 space-y-3">
                       {!isCloudAuthenticated ? (
                         <div className="space-y-3">
-                          <button 
-                            onClick={handleGoogleSignIn}
-                            disabled={authLoading}
-                            className="w-full py-2.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                          <div className="p-3.5 rounded-xl bg-gray-900 border border-gray-800 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-400">وضع الحماية النشط:</span>
+                              <span className="text-emerald-400 font-bold">بوابة كلمة المرور الرئيسية (SHA-256)</span>
+                            </div>
+                            <p className="text-[11px] text-gray-400 leading-relaxed">
+                              الجلسة مفتوحة مؤقتاً داخل التبويب الحالي (sessionStorage) وتُقفل تلقائياً عند إغلاق المتصفح.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={onLockSystem}
+                            className="w-full py-2.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer"
                           >
-                            <Cloud className="w-4 h-4" />
-                            {authLoading ? 'جاري الربط...' : 'تسجيل الدخول عبر Google لمزامنة السحابة'}
+                            <Lock className="w-4 h-4" />
+                            قفل النظام الآن
                           </button>
 
-                          {unauthorizedDomainHost && (
-                            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-[#D4AF37]/50 text-right space-y-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="text-[11px] font-bold text-[#D4AF37]">
-                                  لماذا توقف تسجيل دخول Google على GitHub؟
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setUnauthorizedDomainHost(null)}
-                                  className="text-gray-400 hover:text-white text-xs cursor-pointer"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                              <p className="text-[11px] text-gray-300 leading-relaxed">
-                                Google Firebase يمنع المصادقة من أي نطاق خارجي حتى تضيفه في <span className="font-mono text-white">Authorized domains</span> (بينما المختبرات المحلية تعمل 100%).
-                              </p>
-                              <div className="flex items-center justify-between gap-2 bg-gray-950 px-2.5 py-1.5 rounded-lg border border-gray-800">
-                                <span dir="ltr" className="font-mono text-[11px] text-emerald-400 truncate">
-                                  {unauthorizedDomainHost}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard?.writeText(unauthorizedDomainHost);
-                                    notifyStatus(`تم نسخ النطاق: ${unauthorizedDomainHost}`, 'success');
-                                  }}
-                                  className="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-white shrink-0 cursor-pointer"
-                                >
-                                  نسخ النطاق
-                                </button>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2">
-                                <a
-                                  href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-[11px] transition"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                  فتح Authorized Domains في Firebase
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowCustomFirebasePanel((v) => !v);
-                                    setCustomFirebaseError(null);
-                                  }}
-                                  className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-[#D4AF37] text-[10px] font-bold cursor-pointer"
-                                >
-                                  {showCustomFirebasePanel ? 'إخفاء الربط المخصص' : 'أو ربط مشروع Firebase خاص بك'}
-                                </button>
-                              </div>
-
-                              <div className="text-[10px] text-gray-400 font-mono" dir="ltr">
-                                Active Project: {firebaseConfig.projectId} {isUsingCustomFirebaseConfig ? '(Custom)' : ''}
-                              </div>
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowCustomFirebasePanel((v) => !v);
+                              setCustomFirebaseError(null);
+                            }}
+                            className="w-full py-2 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-[#D4AF37] text-[10px] font-bold cursor-pointer"
+                          >
+                            {showCustomFirebasePanel ? 'إخفاء إعدادات Firebase المخصصة' : 'ربط مشروع Firebase خاص بك'}
+                          </button>
 
                           {(showCustomFirebasePanel || isUsingCustomFirebaseConfig) && (
                             <div className="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-2.5 text-right">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[11px] font-bold text-white">
-                                  ربط مشروع Firebase خاص بك (للعمل على {typeof window !== 'undefined' ? window.location.hostname : 'GitHub'})
+                                  ربط مشروع Firebase خاص بك
                                 </span>
                                 {isUsingCustomFirebaseConfig && (
                                   <button
@@ -9161,7 +9225,7 @@ export default function App() {
                                 )}
                               </div>
                               <p className="text-[10px] text-gray-400 leading-relaxed">
-                                إذا لم يظهر لك المشروع الافتراضي في حسابك: أنشئ مشروعاً مجانياً في Firebase Console، فعّل Google Auth، أضف <span className="font-mono text-gray-200">{typeof window !== 'undefined' ? window.location.hostname : 'github.io'}</span> إلى Authorized domains، ثم الصق كود <span className="font-mono text-gray-200">firebaseConfig</span> هنا:
+                                الصق كود <span className="font-mono text-gray-200">firebaseConfig</span> هنا لتخصيص قاعدة البيانات والتخزين السحابي:
                               </p>
                               <textarea
                                 rows={4}
@@ -9177,6 +9241,9 @@ export default function App() {
                               {customFirebaseError && (
                                 <p className="text-[10px] text-red-400">{customFirebaseError}</p>
                               )}
+                              <div className="text-[10px] text-gray-500 font-mono" dir="ltr">
+                                Active Project: {firebaseConfig.projectId} {isUsingCustomFirebaseConfig ? '(Custom)' : ''}
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -9447,7 +9514,7 @@ export default function App() {
                             : `تحذير: تم اكتشاف كسر أو اختلاف في تسلسل بصمات SHA-256! ${globalLedgerVerification.reason ? `(${globalLedgerVerification.reason})` : ''}`}
                         </div>
                         <div className="text-xs opacity-80 mt-0.5">
-                          عدد الوثائق التسلسلية الموثقة: {globalCustodyLedger.length} • {isCloudAuthenticated ? 'متزامن لحظياً مع Firestore (custody_ledger)' : 'الوضع المحلي (سجّل الدخول بـ Google للمزامنة السحابية)'}
+                          عدد الوثائق التسلسلية الموثقة: {globalCustodyLedger.length} • {isCloudAuthenticated ? 'متزامن لحظياً مع Firestore (custody_ledger)' : 'الوضع المحلي المعزول (محفوظ محلياً ببصمة SHA-256)'}
                         </div>
                       </div>
                     </div>
@@ -11985,9 +12052,9 @@ export default function App() {
                           {threatIntelResult.sources.map((src, idx) => (
                             <a
                               key={idx}
-                              href={src.uri}
+                              href={sanitizeSafeHref(src.uri)}
                               target="_blank"
-                              rel="noreferrer"
+                              rel="noopener noreferrer"
                               className="p-2.5 rounded-lg bg-gray-900 border border-gray-800 hover:border-[#D4AF37] text-xs text-[#D4AF37] flex items-center justify-between gap-2 transition"
                             >
                               <span className="truncate">{src.title}</span>
@@ -13801,9 +13868,9 @@ export default function App() {
                             </button>
                             {item.link && (
                               <a
-                                href={item.link}
+                                href={sanitizeSafeHref(item.link)}
                                 target="_blank"
-                                rel="noreferrer"
+                                rel="noopener noreferrer"
                                 className="px-2.5 py-1 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 text-[10px] font-bold inline-flex items-center gap-1"
                               >
                                 المصدر

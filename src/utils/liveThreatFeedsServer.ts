@@ -1,4 +1,10 @@
 import crypto from 'node:crypto';
+import {
+  assertSafeExternalUrl,
+  safeExternalFetch,
+  sanitizePublicUrl,
+  securityMonitor,
+} from '../../server/security.ts';
 
 export type LiveFeedFormat = 'json' | 'rss';
 export type LiveFeedCategory = 'CVE / Vulnerability' | 'Botnet C2 IP' | 'Security Advisory' | 'Threat Intel RSS';
@@ -175,48 +181,22 @@ function inferSeverityFromText(text: string): LiveThreatFeedItem['severity'] {
   return 'medium';
 }
 
-function isBlockedPrivateUrl(rawUrl: string): boolean {
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
-    const host = parsed.hostname.toLowerCase();
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      host === '0.0.0.0' ||
-      host.endsWith('.local') ||
-      host.startsWith('10.') ||
-      host.startsWith('192.168.') ||
-      host.startsWith('169.254.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    ) {
-      return true;
-    }
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<string> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: {
-        'User-Agent': 'SovereignForensicEngine/2.5 (LiveThreatFeeds)',
-        Accept: 'application/json, application/xml, application/rss+xml, text/xml, */*',
-      },
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    }
-    return await res.text();
-  } finally {
-    clearTimeout(timer);
+  await assertSafeExternalUrl(url);
+  const res = await safeExternalFetch(url, {
+    timeoutMs,
+    maxBytes: 4 * 1024 * 1024,
+    maxRedirects: 2,
+    route: '/api/live-feeds/sync',
+    headers: {
+      'User-Agent': 'SovereignForensicEngine/2.5 (LiveThreatFeeds)',
+      Accept: 'application/json, application/xml, application/rss+xml, text/xml, */*',
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
   }
+  return res.text;
 }
 
 function parseCisaKevJson(rawText: string, limit: number): LiveThreatFeedItem[] {
@@ -352,7 +332,7 @@ function parseRssOrAtomXml(
   for (const block of itemMatches.slice(0, limit)) {
     const title = extractXmlTag(block, 'title');
     if (!title) continue;
-    const link = extractXmlTag(block, 'link') || extractXmlTag(block, 'id') || '';
+    const link = sanitizePublicUrl(extractXmlTag(block, 'link') || extractXmlTag(block, 'id') || '');
     const pubDate =
       extractXmlTag(block, 'pubDate') ||
       extractXmlTag(block, 'published') ||
@@ -422,7 +402,7 @@ function parseGenericJsonFeed(
   return rows.slice(0, limit).map((row, idx) => {
     const title = String(row.title || row.name || row.cveID || row.id || `Feed Entry #${idx + 1}`);
     const summary = String(row.summary || row.description || row.shortDescription || JSON.stringify(row).slice(0, 220));
-    const link = String(row.url || row.link || '');
+    const link = sanitizePublicUrl(row.url || row.link || '');
     const cveMatch = `${title} ${summary}`.match(/CVE-\d{4}-\d{4,7}/i);
     const ipVal = row.ip_address || row.ip || '';
     const indicator = String(cveMatch?.[0] || ipVal || row.indicator || title.slice(0, 48));
@@ -464,14 +444,20 @@ export async function syncLiveThreatFeeds(options?: {
     category: LiveFeedCategory;
   }[] = BUILTIN_THREAT_FEEDS.filter((f) => requestedIds.has(f.id)).map((f) => ({ ...f }));
 
-  // Append custom user feeds if safe
-  for (const custom of options?.customFeedUrls || []) {
-    const cleanUrl = (custom.url || '').trim();
+  // Append custom user feeds cleanly capped at 5 targets & strictly SSRF-checked
+  for (const custom of (options?.customFeedUrls || []).slice(0, 5)) {
+    const cleanUrl = String(custom?.url || '').trim().slice(0, 500);
     if (!cleanUrl) continue;
+    let parsedHost = 'Custom Feed';
+    try {
+      parsedHost = new URL(cleanUrl).hostname || 'Custom Feed';
+    } catch {
+      continue;
+    }
     const cid = `custom_${makeItemId('custom', cleanUrl).slice(0, 8)}`;
     targets.push({
       id: cid,
-      name: custom.name?.trim() || new URL(cleanUrl).hostname,
+      name: String(custom?.name || '').trim().slice(0, 80) || parsedHost,
       provider: 'Custom Feed',
       url: cleanUrl,
       format: 'auto',
@@ -487,8 +473,17 @@ export async function syncLiveThreatFeeds(options?: {
       const t0 = Date.now();
       const fetchedAt = new Date().toISOString();
       try {
-        if (isBlockedPrivateUrl(feed.url)) {
-          throw new Error('الرابط مرفوض أمنياً (يجب أن يكون HTTP/HTTPS عاماً وليس شبكة داخلية).');
+        try {
+          await assertSafeExternalUrl(feed.url);
+        } catch (ssrfErr: any) {
+          securityMonitor.record({
+            eventType: 'SSRF_BLOCKED',
+            severity: 'high',
+            route: '/api/live-feeds/sync',
+            method: 'POST',
+            detail: `Blocked unsafe threat feed URL "${feed.url}": ${ssrfErr?.message || 'SSRF violation'}`,
+          });
+          throw new Error('الرابط مرفوض أمنياً (يجب أن يكون HTTP/HTTPS عاماً ولا يشير لشبكة داخلية).');
         }
         const body = await fetchWithTimeout(feed.url, 8000);
         let parsedItems: LiveThreatFeedItem[] = [];

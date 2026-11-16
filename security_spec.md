@@ -1,30 +1,22 @@
-# Security Specification: Audit Log SHA-256 Hash Field
+# Security Specification: Sovereign Forensic Engine (Full-Stack Invariants)
 
-## 1. Data Invariants
-- Each `AuditLog` entry MUST have a unique `id` and belong to an authenticated user (`userId`).
-- The `sha256` hash, once created, MUST be immutable.
-- A user can only access their own audit logs.
+## 1. Data & Authorization Invariants
+- **Strict Tenant Isolation**: Every document in `investigations`, `evidence`, `custody_ledger`, `forensic_reports`, and `audit_logs` MUST belong to `request.auth.uid` (or verified server-side Admin).
+- **Privilege Escalation Prevention**: Client writes to `/users/{uid}` MUST NOT assign `role: 'admin'`, and `role`, `uid`, `createdAt` are immutable once created. `/admins/{uid}` is readable/writable strictly via Firebase Admin SDK (`allow read, write: if false;` in Rules).
+- **Immutability**: `audit_logs`, `custody_ledger`, `forensic_reports`, `chain_of_custody`, and `security_events` disallow client `update` and `delete`.
+- **Cryptographic Integrity**: `sha256`, `prevHash`, `recordHash`, and `reportSealSha256` MUST match `^[a-fA-F0-9]{64}$`.
+- **Storage Isolation**: `/profiles/{userId}/**` prohibits unauthenticated reads; all uploads enforce strict byte limits (`5MB` profiles, `25MB` evidence) and MIME constraints where appropriate.
 
-## 2. The "Dirty Dozen" Payloads
-1. Create log without `sha256`. (Should Fail)
-2. Create log with `sha256` longer than 64 chars. (Should Fail)
-3. Create log with `sha256` containing invalid hex characters. (Should Fail)
-4. Create log with `userId` belonging to another user. (Should Fail)
-5. Create log with an empty `sha256` string. (Should Fail)
-6. Update existing `sha256` field. (Should Fail)
-7. Update `userId` field to a different UID. (Should Fail)
-8. Create log with `createdAt` set in the future. (Should Fail - implicitly covered by server time)
-9. Create log with `authenticityScore` > 100 or < 0. (Should Fail)
-10. Update `logId` path to something not matching document `id` field. (Should Fail)
-11. List all logs not belonging to the authenticated user. (Should Fail)
-12. Delete another user's log. (Should Fail)
-
-## 3. Test Runner (firestore.rules.test.ts)
-```typescript
-// Conceptual Test Runner
-assertFails(db.collection('audit_logs').add({ ...payloadWithoutSha256 }));
-assertFails(db.collection('audit_logs').add({ ...payloadWithLongSha256 }));
-assertFails(db.collection('audit_logs').add({ ...payloadWithInvalidHexSha256 }));
-assertFails(db.collection('audit_logs').doc('log1').set({ ...payloadWithDifferentUserId }));
-// ... etc
-```
+## 2. The "Dirty Dozen" Payloads (Adversarial Rule Matrix)
+1. Create `audit_logs` entry without `sha256`. (MUST FAIL)
+2. Create `audit_logs` entry with `sha256` longer than 64 chars or non-hex chars. (MUST FAIL)
+3. Update or delete existing `audit_logs` / `custody_ledger` / `forensic_reports` document. (MUST FAIL)
+4. Create `users/{uid}` with `role: 'admin'` or update `users/{uid}` changing `role` / `uid`. (MUST FAIL)
+5. Write to `/admins/{uid}` or `/security_events/{id}` from client SDK. (MUST FAIL)
+6. Cross-tenant `get`/`list`/`update`/`delete` on another user's `investigations`, `evidence`, `audit_logs`, or `users/{otherUid}`. (MUST FAIL)
+7. Create `audit_logs` with `authenticityScore` > 100 or < 0. (MUST FAIL)
+8. Create `evidence` without valid 64-char hex `sha256` or > 100MB `fileSize`. (MUST FAIL)
+9. Unauthenticated Storage `read` on `/profiles/{userId}/avatar.png`. (MUST FAIL)
+10. Storage upload > 5MB or `text/html` MIME on `/profiles/{userId}/avatar`. (MUST FAIL)
+11. Unauthenticated `/api/dashboard-stats` or `/api/security/events` or forged `Bearer mock-token`. (MUST RETURN 401)
+12. SSRF probe (`127.0.0.1`, `169.254.169.254`, `10.0.0.1`, `localhost`) via `/api/dns-ip-lookup` or `/api/live-feeds/sync`. (MUST BLOCK & LOG `SSRF_BLOCKED`)

@@ -1,16 +1,53 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isValidUid(userId) {
+      return userId is string
+        && userId.size() > 0
+        && userId.size() <= 128
+        && userId.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedInOwner(userId) {
+      return request.auth != null
+        && request.auth.uid is string
+        && request.auth.uid.size() > 0
+        && isValidUid(userId)
+        && request.auth.uid == userId;
+    }
+
+    // Fail-closed default deny across entire storage bucket
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Profile avatars: strictly private to owner (removed public unauthenticated read), max 5MB images only
     match /profiles/{userId}/{allPaths=**} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isSignedInOwner(userId);
+      allow create, update: if isSignedInOwner(userId)
+        && request.resource != null
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isSignedInOwner(userId);
     }
+
+    // Forensic Evidence files: isolated per user UID, max 25MB per file
     match /evidence/{userId}/{allPaths=**} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isSignedInOwner(userId);
+      allow create, update: if isSignedInOwner(userId)
+        && request.resource != null
+        && request.resource.size <= 25 * 1024 * 1024;
+      allow delete: if isSignedInOwner(userId);
     }
+
+    // Health check artifacts: isolated per user UID, tiny text/plain only (<= 64KB)
     match /tests/{userId}/{allPaths=**} {
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isSignedInOwner(userId);
+      allow create, update: if isSignedInOwner(userId)
+        && request.resource != null
+        && request.resource.size <= 64 * 1024
+        && request.resource.contentType.matches('text/plain.*');
+      allow delete: if isSignedInOwner(userId);
     }
   }
 }
