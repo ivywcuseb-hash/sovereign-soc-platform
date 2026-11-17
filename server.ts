@@ -1519,7 +1519,8 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
     }
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  const isProductionBuild = process.env.NODE_ENV === 'production' && fs.existsSync(path.join(__dirname, 'dist', 'index.html'));
+  if (!isProductionBuild) {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,

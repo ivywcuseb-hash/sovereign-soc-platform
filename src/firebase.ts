@@ -6,7 +6,9 @@ import {
   signInWithEmailAndPassword,
   sendEmailVerification,
   sendPasswordResetEmail,
-  updateProfile
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage, uploadBytesResumable, deleteObject } from 'firebase/storage';
@@ -109,7 +111,9 @@ export {
   sendPasswordResetEmail,
   updateProfile,
   uploadBytesResumable,
-  deleteObject
+  deleteObject,
+  GoogleAuthProvider,
+  signInWithPopup
 };
 
 // Test connection
