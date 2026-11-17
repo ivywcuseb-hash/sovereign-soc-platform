@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { APP_CURRENT_VERSION } from './UpdateNotification';
 import { apiUrl, getConfiguredApiBase } from '../utils/apiBase';
+import { safeParseRes } from '../utils/clientSecurity';
 
 export type ExportPackageMode = 'github-pages' | 'pwa-dist' | 'full-source';
 
@@ -175,9 +176,8 @@ export function MobilePackageExportModal({
     try {
       const res = await fetch(apiUrl(`/api/export/build-info?t=${Date.now()}`), { cache: 'no-store' });
       if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          const data: BuildInfoResponse = await res.json();
+        const data: BuildInfoResponse = await safeParseRes(res);
+        if (data && Object.keys(data).length > 0) {
           setBuildInfo(data);
         }
       }

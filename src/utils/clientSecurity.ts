@@ -313,3 +313,26 @@ export function setMasterSessionUnlocked(unlocked: boolean): void {
   }
 }
 
+
+export function safeJsonParse<T>(value: string | null, fallback: T): T {
+  if (!value || typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return fallback;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function safeParseRes(res: Response): Promise<any> {
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) return {};
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+
