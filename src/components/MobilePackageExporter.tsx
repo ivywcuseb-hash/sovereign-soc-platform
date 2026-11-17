@@ -84,7 +84,7 @@ async function buildClientFallbackZip(mode: ExportPackageMode): Promise<Blob> {
     const htmlRes = await fetch('./index.html', { cache: 'no-store' });
     if (htmlRes.ok) {
       const htmlText = await htmlRes.text();
-      const assetMatches = htmlText.matchAll(/(?:src|href)=["'](\.?\/?assets\/[^"']+|workbox-[^"']+\.js)["']/g);
+      const assetMatches = htmlText.matchAll(/(?:src|href)=["'](\.?\/?(?:assets\/[^"']+|(?:app|chunk|index|workbox)-[^"']+\.(?:js|css)))["']/g);
       for (const match of assetMatches) {
         if (match[1]) {
           const normalized = match[1].startsWith('./') || match[1].startsWith('/') ? match[1] : `./${match[1]}`;

@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-f0c192c2'], (function (workbox) { 'use strict';
+define(['./workbox-7b16fee0'], (function (workbox) { 'use strict';
 
   self.addEventListener('message', event => {
     if (event.data && event.data.type === 'SKIP_WAITING') {
@@ -81,25 +81,85 @@ define(['./workbox-f0c192c2'], (function (workbox) { 'use strict';
    * See https://goo.gl/S9QRab
    */
   workbox.precacheAndRoute([{
+    "url": "sql-wasm.wasm",
+    "revision": null
+  }, {
+    "url": "pwa-maskable-512x512.png",
+    "revision": null
+  }, {
+    "url": "pwa-512x512.png",
+    "revision": null
+  }, {
+    "url": "pwa-192x192.png",
+    "revision": null
+  }, {
+    "url": "manifest.json",
+    "revision": null
+  }, {
     "url": "index.html",
-    "revision": "84f5d3efb6ceb6c293373c8929f180fa"
-  }, {
-    "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
-    "revision": null
-  }, {
-    "url": "assets/index-HjV9w1Ba.css",
-    "revision": null
-  }, {
-    "url": "assets/index-C6j8lpnh.js",
     "revision": null
   }, {
     "url": "icon.svg",
-    "revision": "a18a81027a0cee244bd56c291b02768a"
+    "revision": null
   }, {
-    "url": "manifest.webmanifest",
-    "revision": "4155a906abb0d9961635b51153947201"
+    "url": "favicon.ico",
+    "revision": null
+  }, {
+    "url": "chunk-Bd17z0YL.js",
+    "revision": null
+  }, {
+    "url": "apple-touch-icon.png",
+    "revision": null
+  }, {
+    "url": "app-tjjDjLO-.js",
+    "revision": null
+  }, {
+    "url": "app-COZg2uXG.css",
+    "revision": null
+  }, {
+    "url": "apple-touch-icon.png",
+    "revision": "b638a8c72eab9e4e87049f0fed757076"
+  }, {
+    "url": "favicon.ico",
+    "revision": "6f367536a8efd6643ed6b72d04076ef5"
+  }, {
+    "url": "icon.svg",
+    "revision": "a4c5bcacb2cbe91a786d3c161dbd5bf9"
+  }, {
+    "url": "manifest.json",
+    "revision": "3d5539fc0a0e83f8663eb93be7eb09c6"
+  }, {
+    "url": "pwa-192x192.png",
+    "revision": "a9733f6ce160a1ba81d79e77142c338c"
+  }, {
+    "url": "pwa-512x512.png",
+    "revision": "194824ea711113fef784812b9316baa5"
+  }, {
+    "url": "pwa-maskable-512x512.png",
+    "revision": "1aa493b84afc83a74e6c3832d0fc0e10"
+  }, {
+    "url": "sql-wasm.wasm",
+    "revision": "a7a5257718a8b6f4d787315b2343e4fe"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html")));
+  workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
+    "cacheName": "google-fonts-cache",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 10,
+      maxAgeSeconds: 31536000
+    }), new workbox.CacheableResponsePlugin({
+      statuses: [0, 200]
+    })]
+  }), 'GET');
+  workbox.registerRoute(/^https:\/\/fonts\.gstatic\.com\/.*/i, new workbox.CacheFirst({
+    "cacheName": "gstatic-fonts-cache",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 10,
+      maxAgeSeconds: 31536000
+    }), new workbox.CacheableResponsePlugin({
+      statuses: [0, 200]
+    })]
+  }), 'GET');
 
 }));
