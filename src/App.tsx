@@ -1636,7 +1636,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const formatAuthError = (err: any, fallback: string) => {
     const code = err?.code || '';
     const msg = err?.message || '';
-    if (code === 'auth/unauthorized-domain') return `نطاق التطبيق الحالي (${window.location.hostname}) غير مضاف إلى النطاقات المصرح بها في مشروع Firebase.`;
+    if (code === 'auth/unauthorized-domain') return `نطاق التطبيق الحالي (${window.location.hostname}) غير مضاف إلى النطاقات المصرح بها في مشروع Firebase (${firebaseConfig.projectId}).`;
     if (code === 'auth/popup-blocked') return 'المتصفح منع فتح نافذة تسجيل الدخول. يرجى السماح بالنوافذ المنبثقة (Popups).';
     if (code === 'auth/popup-closed-by-user') return 'تم إغلاق نافذة تسجيل الدخول قبل إتمام العملية.';
     if (code === 'auth/cancelled-popup-request') return 'تم إلغاء طلب نافذة تسجيل الدخول بسبب فتح نافذة أخرى.';
