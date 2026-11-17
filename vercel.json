@@ -37,6 +37,19 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "sovereign-soc-platform-9wwm.vercel.app"
+        }
+      ],
+      "destination": "https://sovsoc.vercel.app/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/((?!assets/|manifest\\.json|sw\\.js|workbox-.*|sql-wasm\\.wasm|.*\\.(?:png|jpg|jpeg|svg|ico|wasm|js|css|json|txt|xml)$).*)",

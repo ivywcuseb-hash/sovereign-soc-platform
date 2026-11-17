@@ -410,7 +410,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
   const [showPinChangeModal, setShowPinChangeModal] = useState<boolean>(false);
 
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports'>('dashboard');
+  const [authReady, setAuthReady] = useState<boolean>(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
   useEffect(() => {
+    if (!user) return;
     let inactivityTimer: any;
     const resetTimer = () => {
       clearTimeout(inactivityTimer);
@@ -428,11 +434,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       clearTimeout(inactivityTimer);
       events.forEach(e => window.removeEventListener(e, resetTimer));
     };
-  }, []);
-
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports'>('dashboard');
-  const [user, setUser] = useState<User | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  }, [user]);
 
   const [investigations, setInvestigations] = useState<Investigation[]>(() => {
     try {
@@ -707,18 +709,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [evidenceLoading, setEvidenceLoading] = useState<boolean>(false);
   const [statsLoading, setStatsLoading] = useState<boolean>(false);
 
-  // Authentication State
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authName, setAuthName] = useState('');
+  // Authentication State (Mandatory Google Sign-In via Firebase Auth)
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showCustomFirebasePanel, setShowCustomFirebasePanel] = useState<boolean>(false);
   const [customFirebaseRaw, setCustomFirebaseRaw] = useState<string>('');
   const [customFirebaseError, setCustomFirebaseError] = useState<string | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
-  const [resetSent, setResetSent] = useState(false);
 
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [elaImage, setElaImage] = useState<string | null>(null);
@@ -1289,7 +1286,26 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (u) {
+      const isGoogleUser = Boolean(
+        u &&
+        !u.isAnonymous &&
+        u.providerData?.some((provider) => provider.providerId === 'google.com')
+      );
+
+      if (u && !isGoogleUser) {
+        console.warn('[Sovereign Auth] Non-Google session detected; enforcing Google Sign-In only.');
+        try {
+          await signOut(auth);
+        } catch {}
+        setIsCloudAuthenticated(false);
+        setUser(null);
+        setUserProfile(null);
+        setAuthError('يجب تسجيل الدخول باستخدام حساب Google فقط عبر Firebase Authentication.');
+        setAuthReady(true);
+        return;
+      }
+
+      if (u && isGoogleUser) {
         setUser(u);
         setIsCloudAuthenticated(true);
         try {
@@ -1301,7 +1317,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             const newProfile: UserProfile = {
               uid: u.uid,
               email: (u.email || '').slice(0, 320),
-              displayName: (u.displayName || authName || 'محقق جديد').slice(0, 128),
+              displayName: (u.displayName || 'محقق جديد').slice(0, 128),
               photoURL: (u.photoURL || '').slice(0, 2048),
               role: 'analyst',
               createdAt: new Date().toISOString().slice(0, 64),
@@ -1343,6 +1359,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         setUser(null);
         setUserProfile(null);
       }
+      setAuthReady(true);
     });
 
     // Battery API
@@ -1649,27 +1666,6 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     return msg || fallback;
   };
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError(null);
-    try {
-      if (authMode === 'signup') {
-        const cred = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-        await updateProfile(cred.user, { displayName: authName });
-        await sendEmailVerification(cred.user);
-        setVerificationSent(true);
-      } else if (authMode === 'login') {
-        await signInWithEmailAndPassword(auth, authEmail, authPassword);
-      }
-    } catch (err: any) {
-      console.error('Auth error:', err);
-      setAuthError(formatAuthError(err, 'حدث خطأ في المصادقة.'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
   const handleGoogleLogin = async () => {
     setAuthLoading(true);
     setAuthError(null);
@@ -1697,48 +1693,6 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     } finally {
       setAuthLoading(false);
     }
-  };
-
-  const handlePasswordReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError(null);
-    try {
-      await sendPasswordResetEmail(auth, authEmail);
-      setResetSent(true);
-    } catch (err: any) {
-      setAuthError(formatAuthError(err, 'خطأ في إرسال رابط الاستعادة.'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleGuestLogin = () => {
-    const guestUser = {
-      uid: 'guest-analyst-local',
-      email: 'analyst@sovereign.local',
-      displayName: 'المحقق السيادي (وضع محلي)',
-      emailVerified: true,
-      isAnonymous: false,
-      tenantId: null,
-      providerData: [],
-      getIdToken: async () => 'mock-token'
-    } as unknown as User;
-    setUser(guestUser);
-    setUserProfile({
-      uid: guestUser.uid,
-      email: guestUser.email || '',
-      displayName: 'المحقق السيادي (وضع محلي)',
-      role: 'analyst',
-      createdAt: new Date().toISOString()
-    });
-    setInvestigations(prev => prev.length > 0 ? prev : [{
-      id: 'inv-default-1',
-      title: 'التحقيق السيادي المركزي - الأدلة الرقمية',
-      status: 'active',
-      createdAt: new Date().toISOString()
-    }]);
-    setCurrentInvestigationId(prev => prev || 'inv-default-1');
   };
 
   const handleSignOut = async () => {
@@ -5721,19 +5675,21 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       className="sovereign-shell min-h-screen pb-12 bg-[#0b0f19] text-gray-100 flex flex-col font-sans overflow-x-hidden selection:bg-[#D4AF37]/30 selection:text-[#D4AF37]"
     >
       {/* Site Update Prompt / Notification Banner */}
-      <UpdateBanner 
-        hasUpdate={update.hasUpdate}
-        isUpdating={update.isUpdating}
-        dismissed={update.dismissed}
-        setDismissed={update.setDismissed}
-        applyUpdateNow={update.applyUpdateNow}
-        setShowModal={update.setShowModal}
-      />
+      {authReady && user && (
+        <UpdateBanner 
+          hasUpdate={update.hasUpdate}
+          isUpdating={update.isUpdating}
+          dismissed={update.dismissed}
+          setDismissed={update.setDismissed}
+          applyUpdateNow={update.applyUpdateNow}
+          setShowModal={update.setShowModal}
+        />
+      )}
 
       {/* Top Sovereign System Bar with Real Device Telemetry & Firebase Auth */}
       <header className={`sticky top-0 z-50 flex items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-4 md:px-6 ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'py-2' : 'py-2.5 sm:py-3'} bg-[#0b0f19]/95 backdrop-blur-md border-b border-gray-800 max-w-full`}>
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 xl:flex-none">
-          {isSidebarMode && (
+          {isSidebarMode && authReady && user && (
             <button
               type="button"
               onClick={() => setMobileSidebarOpen((v) => !v)}
@@ -5752,197 +5708,213 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           </div>
         </div>
 
-        {/* Horizontal Top Navbar (Hidden in Sidebar Modes on Desktop) */}
-        {!isSidebarMode ? (
-          <nav className={`hidden xl:flex items-center ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'gap-2 text-xs' : 'gap-3 text-sm'} font-medium text-gray-300 overflow-x-auto max-w-full py-0.5`}>
-            <button onClick={() => handleSelectTab('dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <LayoutDashboard className="w-4 h-4" />
-              لوحة التحكم
-            </button>
-            <button onClick={() => handleSelectTab('analyzer')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('analyzer') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              وحدة التحليل الرقمي
-            </button>
-            <button onClick={() => handleSelectTab('evidence')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('evidence') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Briefcase className="w-4 h-4" />
-              إدارة الأدلة
-            </button>
-            <button onClick={() => handleSelectTab('custody')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('custody') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <History className="w-4 h-4" />
-              سلسلة الحيازة
-            </button>
-            <button onClick={() => handleSelectTab('email')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('email') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              تحليل البريد
-            </button>
-            <button onClick={() => handleSelectTab('clipboard')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('clipboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              الحافظة
-            </button>
-            <button onClick={() => handleSelectTab('search')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('search') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              الاستخبارات (OSINT)
-            </button>
-            <button onClick={() => handleSelectTab('ela')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ela') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              ELA
-            </button>
-            <button onClick={() => handleSelectTab('hex')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('hex') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              Hex
-            </button>
-            <button onClick={() => handleSelectTab('audit')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('audit') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              سجل العمليات
-            </button>
-            <button onClick={() => handleSelectTab('comparison')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('comparison') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Diff className="w-4 h-4" />
-              مقارنة الأدلة
-            </button>
-            <button onClick={() => handleSelectTab('parser')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('parser') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Terminal className="w-4 h-4" />
-              محلل السجلات (IoC)
-            </button>
-            <button onClick={() => handleSelectTab('apk')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('apk') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Smartphone className="w-4 h-4" />
-              تحليل APK
-            </button>
-            <button onClick={() => handleSelectTab('browser')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('browser') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Database className="w-4 h-4" />
-              سجل المتصفح (SQLite)
-            </button>
-            <button onClick={() => handleSelectTab('threat_intel')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('threat_intel') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Globe className="w-4 h-4" />
-              الاستخبارات العالمية
-            </button>
-            <button onClick={() => handleSelectTab('deobfuscator')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('deobfuscator') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <FileCode className="w-4 h-4" />
-              فك تشويه السكربتات
-            </button>
-            <button onClick={() => handleSelectTab('binary_lab')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('binary_lab') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Cpu className="w-4 h-4" />
-              تحليل الباينري (PE/ELF)
-            </button>
-            <button onClick={() => handleSelectTab('live_feeds')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('live_feeds') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <Activity className="w-4 h-4" />
-              التغذيات الحية
-              {liveFeedsAutoSync && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-            </button>
-            <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-              <FileText className="w-4 h-4" />
-              التقارير الموثقة
-            </button>
-          </nav>
-        ) : (
-          <div className="hidden xl:flex items-center gap-2 text-xs text-gray-300 bg-gray-900/80 border border-gray-800 px-3.5 py-1.5 rounded-xl">
-            <span className="text-[#D4AF37]">{renderTabIcon(activeTab as AppTabId, 'w-4 h-4')}</span>
-            <span className="font-bold text-white">
-              {NAV_TABS_META.find((t) => t.id === activeTab)?.label || 'لوحة التحكم'}
-            </span>
-            <span className="text-[10px] text-gray-500 font-mono px-1.5 border-r border-gray-700">
-              {uiPrefs.layoutStructure === 'minimal_sidebar' ? 'MINIMAL RAIL' : 'SIDEBAR MODE'}
-            </span>
-          </div>
+        {/* Horizontal Top Navbar (Hidden until Google Auth completes & in Sidebar Modes on Desktop) */}
+        {authReady && user && (
+          !isSidebarMode ? (
+            <nav className={`hidden xl:flex items-center ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'gap-2 text-xs' : 'gap-3 text-sm'} font-medium text-gray-300 overflow-x-auto max-w-full py-0.5`}>
+              <button onClick={() => handleSelectTab('dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <LayoutDashboard className="w-4 h-4" />
+                لوحة التحكم
+              </button>
+              <button onClick={() => handleSelectTab('analyzer')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('analyzer') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                وحدة التحليل الرقمي
+              </button>
+              <button onClick={() => handleSelectTab('evidence')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('evidence') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Briefcase className="w-4 h-4" />
+                إدارة الأدلة
+              </button>
+              <button onClick={() => handleSelectTab('custody')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('custody') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <History className="w-4 h-4" />
+                سلسلة الحيازة
+              </button>
+              <button onClick={() => handleSelectTab('email')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('email') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                تحليل البريد
+              </button>
+              <button onClick={() => handleSelectTab('clipboard')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('clipboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                الحافظة
+              </button>
+              <button onClick={() => handleSelectTab('search')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('search') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                الاستخبارات (OSINT)
+              </button>
+              <button onClick={() => handleSelectTab('ela')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ela') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                ELA
+              </button>
+              <button onClick={() => handleSelectTab('hex')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('hex') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                Hex
+              </button>
+              <button onClick={() => handleSelectTab('audit')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('audit') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                سجل العمليات
+              </button>
+              <button onClick={() => handleSelectTab('comparison')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('comparison') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Diff className="w-4 h-4" />
+                مقارنة الأدلة
+              </button>
+              <button onClick={() => handleSelectTab('parser')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('parser') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Terminal className="w-4 h-4" />
+                محلل السجلات (IoC)
+              </button>
+              <button onClick={() => handleSelectTab('apk')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('apk') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Smartphone className="w-4 h-4" />
+                تحليل APK
+              </button>
+              <button onClick={() => handleSelectTab('browser')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('browser') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Database className="w-4 h-4" />
+                سجل المتصفح (SQLite)
+              </button>
+              <button onClick={() => handleSelectTab('threat_intel')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('threat_intel') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Globe className="w-4 h-4" />
+                الاستخبارات العالمية
+              </button>
+              <button onClick={() => handleSelectTab('deobfuscator')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('deobfuscator') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <FileCode className="w-4 h-4" />
+                فك تشويه السكربتات
+              </button>
+              <button onClick={() => handleSelectTab('binary_lab')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('binary_lab') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Cpu className="w-4 h-4" />
+                تحليل الباينري (PE/ELF)
+              </button>
+              <button onClick={() => handleSelectTab('live_feeds')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('live_feeds') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Activity className="w-4 h-4" />
+                التغذيات الحية
+                {liveFeedsAutoSync && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+              </button>
+              <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <FileText className="w-4 h-4" />
+                التقارير الموثقة
+              </button>
+            </nav>
+          ) : (
+            <div className="hidden xl:flex items-center gap-2 text-xs text-gray-300 bg-gray-900/80 border border-gray-800 px-3.5 py-1.5 rounded-xl">
+              <span className="text-[#D4AF37]">{renderTabIcon(activeTab as AppTabId, 'w-4 h-4')}</span>
+              <span className="font-bold text-white">
+                {NAV_TABS_META.find((t) => t.id === activeTab)?.label || 'لوحة التحكم'}
+              </span>
+              <span className="text-[10px] text-gray-500 font-mono px-1.5 border-r border-gray-700">
+                {uiPrefs.layoutStructure === 'minimal_sidebar' ? 'MINIMAL RAIL' : 'SIDEBAR MODE'}
+              </span>
+            </div>
+          )
         )}
 
         {/* Real Device Telemetry, UI Customizer & Firebase Auth Widget */}
         <div className="flex items-center gap-1 sm:gap-2 text-xs font-mono shrink-0">
-          {/* Dynamic Layout & UI Customizer + Instant Procedural Randomizer */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setShowLayoutCustomizer(true)}
-              title="فتح مُخصِّص الواجهة والهيكل الديناميكي (+540 ثيم)"
-              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span className="hidden md:inline text-[11px]">تخصيص الهيكل والواجهة</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const picked = pickRandomProceduralTheme(uiPrefs.proceduralThemeId);
-                updateUiPreferences({
-                  themePreset: 'procedural',
-                  proceduralThemeId: picked.id,
-                });
-                notifyStatus(`تم تطبيق الثيم الإجرائي #${picked.id.toUpperCase()}: ${picked.nameAr}`, 'success');
-              }}
-              title="تغيير عشوائي حقيقي فوري من +540 ثيم (Instant Theme Generator)"
-              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 bg-gray-900/90 hover:bg-gray-800 text-[#D4AF37] border border-[#D4AF37]/40 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
-            >
-              <Dices className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline text-[10px]">ثيم عشوائي</span>
-            </button>
-          </div>
+          {authReady && user ? (
+            <>
+              {/* Dynamic Layout & UI Customizer + Instant Procedural Randomizer */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowLayoutCustomizer(true)}
+                  title="فتح مُخصِّص الواجهة والهيكل الديناميكي (+540 ثيم)"
+                  className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline text-[11px]">تخصيص الهيكل والواجهة</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const picked = pickRandomProceduralTheme(uiPrefs.proceduralThemeId);
+                    updateUiPreferences({
+                      themePreset: 'procedural',
+                      proceduralThemeId: picked.id,
+                    });
+                    notifyStatus(`تم تطبيق الثيم الإجرائي #${picked.id.toUpperCase()}: ${picked.nameAr}`, 'success');
+                  }}
+                  title="تغيير عشوائي حقيقي فوري من +540 ثيم (Instant Theme Generator)"
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 bg-gray-900/90 hover:bg-gray-800 text-[#D4AF37] border border-[#D4AF37]/40 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm"
+                >
+                  <Dices className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline text-[10px]">ثيم عشوائي</span>
+                </button>
+              </div>
 
-          {/* Cloud Sync / Local Mode Indicator */}
-          {isCloudAuthenticated && (
-            <div
-              title="متصل بقاعدة بيانات Firestore السحابية والمصادقة الفعلية"
-              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg font-sans font-bold"
-            >
-              <Cloud className="w-3.5 h-3.5" />
-              <span className="text-[10px]">Firestore متصل</span>
-            </div>
-          )}
-
-          {/* Master System Lock Button */}
-          <button
-            type="button"
-            onClick={onLockSystem}
-            title="قفل النظام والعودة لشاشة القفل الرئيسية"
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-lg transition font-sans font-bold cursor-pointer shrink-0"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span className="text-[11px] whitespace-nowrap">قفل النظام</span>
-          </button>
-
-          {/* Panic Lock Button */}
-          <button
-            onClick={() => setIsLocked(true)}
-            title="قفل الطوارئ الفوري (Panic Lock)"
-            className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition font-bold cursor-pointer"
-          >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span className="hidden 2xl:inline text-[10px]">قفل طوارئ</span>
-          </button>
-
-          {/* PWA / Android APK Install Button */}
-          <PWAInstallButton />
-
-          {/* Site Update Status Pill & Quick Action */}
-          <button
-            onClick={() => update.hasUpdate ? update.setShowModal(true) : update.checkForUpdates(true)}
-            title={update.hasUpdate ? 'هذا الموقع يريد تحديث! انقر للتحديث الفوري' : 'فحص تحديثات الموقع'}
-            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition cursor-pointer ${
-              update.hasUpdate 
-                ? 'bg-amber-950/80 border-[#D4AF37] text-[#D4AF37] animate-pulse font-bold shadow-lg shadow-[#D4AF37]/20' 
-                : 'bg-gray-900 border-gray-800 text-gray-300 hover:border-[#D4AF37]/50'
-            }`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${update.isChecking ? 'animate-spin text-[#D4AF37]' : ''}`} />
-            <span>v{APP_CURRENT_VERSION}</span>
-          </button>
-
-          <div className="hidden 2xl:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-900 border border-gray-800 text-gray-300">
-            {batteryInfo.charging ? <BatteryCharging className="w-3.5 h-3.5 text-[#10B981]" /> : <Battery className="w-3.5 h-3.5 text-[#D4AF37]" />}
-            <span>{batteryInfo.level}%</span>
-          </div>
-
-          <div className="hidden 2xl:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-900 border border-gray-800 text-gray-300">
-            <Wifi className={`w-3.5 h-3.5 ${networkInfo.online ? 'text-[#10B981]' : 'text-red-500'}`} />
-            <span>{networkInfo.online ? networkInfo.type : 'غير متصل'}</span>
-          </div>
-
-          {user ? (
-            <button 
-              onClick={() => handleSelectTab('profile')}
-              className="flex items-center gap-1.5 sm:gap-2 bg-gray-900 px-2 sm:px-3 py-1.5 rounded-lg border border-gray-800 hover:border-[#D4AF37] transition group cursor-pointer"
-            >
-              {userProfile?.photoURL ? (
-                <img src={userProfile.photoURL} alt="Avatar" className="w-5 h-5 rounded-full object-cover" />
-              ) : (
-                <UserIcon className="w-3.5 h-3.5 text-gray-400 group-hover:text-[#D4AF37]" />
+              {/* Cloud Sync / Local Mode Indicator */}
+              {isCloudAuthenticated && (
+                <div
+                  title="متصل بقاعدة بيانات Firestore السحابية والمصادقة الفعلية"
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg font-sans font-bold"
+                >
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span className="text-[10px]">Firestore متصل</span>
+                </div>
               )}
-              <span className="hidden sm:inline text-white font-medium truncate max-w-[90px] sm:max-w-[110px]">{userProfile?.displayName || user.email}</span>
-            </button>
+
+              {/* Master System Lock Button */}
+              <button
+                type="button"
+                onClick={onLockSystem}
+                title="قفل النظام والعودة لشاشة القفل الرئيسية"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-lg transition font-sans font-bold cursor-pointer shrink-0"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span className="text-[11px] whitespace-nowrap">قفل النظام</span>
+              </button>
+
+              {/* Panic Lock Button */}
+              <button
+                onClick={() => setIsLocked(true)}
+                title="قفل الطوارئ الفوري (Panic Lock)"
+                className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition font-bold cursor-pointer"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span className="hidden 2xl:inline text-[10px]">قفل طوارئ</span>
+              </button>
+
+              {/* PWA / Android APK Install Button */}
+              <PWAInstallButton />
+
+              {/* Site Update Status Pill & Quick Action */}
+              <button
+                onClick={() => update.hasUpdate ? update.setShowModal(true) : update.checkForUpdates(true)}
+                title={update.hasUpdate ? 'هذا الموقع يريد تحديث! انقر للتحديث الفوري' : 'فحص تحديثات الموقع'}
+                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                  update.hasUpdate 
+                    ? 'bg-amber-950/80 border-[#D4AF37] text-[#D4AF37] animate-pulse font-bold shadow-lg shadow-[#D4AF37]/20' 
+                    : 'bg-gray-900 border-gray-800 text-gray-300 hover:border-[#D4AF37]/50'
+                }`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${update.isChecking ? 'animate-spin text-[#D4AF37]' : ''}`} />
+                <span>v{APP_CURRENT_VERSION}</span>
+              </button>
+
+              <div className="hidden 2xl:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-900 border border-gray-800 text-gray-300">
+                {batteryInfo.charging ? <BatteryCharging className="w-3.5 h-3.5 text-[#10B981]" /> : <Battery className="w-3.5 h-3.5 text-[#D4AF37]" />}
+                <span>{batteryInfo.level}%</span>
+              </div>
+
+              <div className="hidden 2xl:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gray-900 border border-gray-800 text-gray-300">
+                <Wifi className={`w-3.5 h-3.5 ${networkInfo.online ? 'text-[#10B981]' : 'text-red-500'}`} />
+                <span>{networkInfo.online ? networkInfo.type : 'غير متصل'}</span>
+              </div>
+
+              <button 
+                onClick={() => handleSelectTab('profile')}
+                className="flex items-center gap-1.5 sm:gap-2 bg-gray-900 px-2 sm:px-3 py-1.5 rounded-lg border border-gray-800 hover:border-[#D4AF37] transition group cursor-pointer"
+              >
+                {userProfile?.photoURL ? (
+                  <img src={userProfile.photoURL} alt="Avatar" className="w-5 h-5 rounded-full object-cover" />
+                ) : (
+                  <UserIcon className="w-3.5 h-3.5 text-gray-400 group-hover:text-[#D4AF37]" />
+                )}
+                <span className="hidden sm:inline text-white font-medium truncate max-w-[90px] sm:max-w-[110px]">{userProfile?.displayName || user.email}</span>
+              </button>
+            </>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 font-mono">UNAUTHENTICATED</span>
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-900 border border-gray-800 text-gray-400 font-sans text-[11px]">
+                <Lock className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>المصادقة عبر Google مطلوبة</span>
+              </div>
+              <button
+                type="button"
+                onClick={onLockSystem}
+                title="قفل النظام والعودة لشاشة القفل الرئيسية"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#D4AF37] border border-[#D4AF37]/50 rounded-lg transition font-sans font-bold cursor-pointer shrink-0"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span className="text-[11px] whitespace-nowrap">قفل النظام</span>
+              </button>
             </div>
           )}
         </div>
@@ -5951,7 +5923,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       {/* Main Workspace Frame (Supports Top Navbar, Collapsible Vertical Sidebar & Multi-Panel Grid) */}
       <div className="flex-1 flex min-h-0 relative">
         {/* Smart Collapsible / Minimal Vertical Sidebar */}
-        {isSidebarMode && user && (
+        {isSidebarMode && authReady && user && (
           <>
             {mobileSidebarOpen && (
               <div
@@ -6077,8 +6049,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         }`}
       >
         
-        {/* Mobile Nav (always accessible on mobile/tablet even in sidebar mode) */}
-        <div className={`flex ${isSidebarMode ? 'lg:hidden' : 'xl:hidden'} overflow-x-auto gap-2 pb-2 border-b border-gray-800`}>
+        {/* Mobile Nav (always accessible on mobile/tablet after Google Sign-In) */}
+        {authReady && user && (
+          <div className={`flex ${isSidebarMode ? 'lg:hidden' : 'xl:hidden'} overflow-x-auto gap-2 pb-2 border-b border-gray-800`}>
             <button onClick={() => handleSelectTab('dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الرئيسية</button>
             <button onClick={() => handleSelectTab('analyzer')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('analyzer') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التحليل</button>
             <button onClick={() => handleSelectTab('evidence')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('evidence') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الأدلة</button>
@@ -6100,9 +6073,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
             <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
           </div>
+        )}
 
         {/* Multi-Panel Dashboard Grid Workspace Controller Bar */}
-        {uiPrefs.layoutStructure === 'multi_grid' && user && (
+        {uiPrefs.layoutStructure === 'multi_grid' && authReady && user && (
           <div className="bg-gray-900/90 border border-[#D4AF37]/40 rounded-2xl p-4 shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 flex-wrap">
               <div className="flex items-center gap-2 text-xs font-bold text-[#D4AF37] ml-2">
@@ -6177,230 +6151,138 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           </div>
         )}
 
-        {!user ? (
+        {!authReady ? (
+          <div className="max-w-md mx-auto py-20">
+            <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl text-center space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-2xl mx-auto">
+                <Lock className="w-8 h-8 text-gray-950 animate-pulse" />
+              </div>
+              <h2 className="text-xl font-bold text-white tracking-tight">جاري التحقق من المصادقة</h2>
+              <p className="text-gray-400 text-xs leading-relaxed">
+                يتم التحقق من جلسة حساب Google عبر Firebase Authentication...
+              </p>
+            </div>
+          </div>
+        ) : !user ? (
           <div className="max-w-md mx-auto py-12 space-y-8">
             <div className="text-center space-y-2">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-2xl mx-auto mb-6">
                 <Lock className="w-8 h-8 text-gray-950" />
               </div>
               <h2 className="text-2xl font-bold text-white tracking-tight">نظام المصادقة السيادي</h2>
-              <p className="text-gray-400 text-sm leading-relaxed">يرجى تسجيل الدخول للوصول إلى وحدة التحقيق الجنائي والأدلة الرقمية.</p>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                تسجيل الدخول باستخدام حساب Google إلزامي للوصول إلى وحدة التحقيق الجنائي والأدلة الرقمية.
+              </p>
             </div>
 
             <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl space-y-6">
-              {authMode === 'login' && (
-                <div className="space-y-4 pb-5 border-b border-gray-800">
-                  <button
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    disabled={authLoading}
-                    className="w-full py-4 bg-white hover:bg-gray-100 text-gray-900 font-bold rounded-2xl shadow-xl transition flex items-center justify-center gap-3 text-sm disabled:opacity-50 cursor-pointer"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                    </svg>
-                    تسجيل الدخول باستخدام Google مباشرة
-                  </button>
-                  <div className="relative flex py-1 items-center">
-                    <div className="flex-grow border-t border-gray-800"></div>
-                    <span className="flex-shrink mx-4 text-gray-500 text-xs uppercase tracking-widest">أو عبر البريد الإلكتروني</span>
-                    <div className="flex-grow border-t border-gray-800"></div>
-                  </div>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={authLoading}
+                className="w-full py-4 bg-white hover:bg-gray-100 text-gray-900 font-bold rounded-2xl shadow-xl transition flex items-center justify-center gap-3 text-sm disabled:opacity-50 cursor-pointer"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                </svg>
+                {authLoading ? 'جاري المصادقة عبر Google...' : 'تسجيل الدخول باستخدام Google'}
+              </button>
 
-              {authMode === 'reset' ? (
-                <form onSubmit={handlePasswordReset} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">البريد الإلكتروني</label>
-                    <input 
-                      type="email" 
-                      value={authEmail} 
-                      onChange={(e) => setAuthEmail(e.target.value)} 
-                      className="w-full px-4 py-3 bg-gray-950 border border-gray-800 rounded-xl text-sm text-white focus:border-[#D4AF37] outline-none transition"
-                      placeholder="user@example.com"
-                      required
-                    />
-                  </div>
-                  {resetSent && (
-                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
-                      تم إرسال رابط استعادة كلمة المرور إلى بريدك.
-                    </div>
-                  )}
-                  <button 
-                    type="submit" 
-                    disabled={authLoading}
-                    className="w-full py-3.5 bg-gradient-to-r from-[#D4AF37] to-[#b8972e] text-gray-950 font-bold rounded-xl shadow-lg hover:opacity-95 transition disabled:opacity-50"
-                  >
-                    {authLoading ? 'جاري الإرسال...' : 'إرسال رابط الاستعادة'}
-                  </button>
-                  <button type="button" onClick={() => { setAuthMode('login'); setAuthError(null); }} className="w-full text-xs text-gray-500 hover:text-white transition">العودة لتسجيل الدخول</button>
-                </form>
-              ) : (
-                <form onSubmit={handleEmailAuth} className="space-y-5">
-                  {authMode === 'signup' && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">الاسم الكامل</label>
-                      <input 
-                        type="text" 
-                        value={authName} 
-                        onChange={(e) => setAuthName(e.target.value)} 
-                        className="w-full px-4 py-3 bg-gray-950 border border-gray-800 rounded-xl text-sm text-white focus:border-[#D4AF37] outline-none transition"
-                        placeholder="المحقق الجنائي..."
-                        required
-                      />
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">البريد الإلكتروني</label>
-                    <input 
-                      type="email" 
-                      value={authEmail} 
-                      onChange={(e) => setAuthEmail(e.target.value)} 
-                      className="w-full px-4 py-3 bg-gray-950 border border-gray-800 rounded-xl text-sm text-white focus:border-[#D4AF37] outline-none transition"
-                      placeholder="user@example.com"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center px-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">كلمة المرور</label>
-                      {authMode === 'login' && (
-                        <button type="button" onClick={() => { setAuthMode('reset'); setAuthError(null); }} className="text-[10px] text-[#D4AF37] hover:underline">نسيت كلمة المرور؟</button>
-                      )}
-                    </div>
-                    <input 
-                      type="password" 
-                      value={authPassword} 
-                      onChange={(e) => setAuthPassword(e.target.value)} 
-                      className="w-full px-4 py-3 bg-gray-950 border border-gray-800 rounded-xl text-sm text-white focus:border-[#D4AF37] outline-none transition"
-                      placeholder="••••••••"
-                      required
-                    />
-                  </div>
+              {authError && (
+                <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl text-[11px] text-red-300 space-y-2.5">
+                  <div className="font-mono leading-relaxed">{authError}</div>
+                  {authError.includes('auth/unauthorized-domain') && (
+                    <div className="pt-2 border-t border-red-500/20 space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard?.writeText(window.location.hostname)}
+                          className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3 text-[#D4AF37]" />
+                          نسخ النطاق ({window.location.hostname})
+                        </button>
+                        <a
+                          href={`https://console.firebase.google.com/project/${encodeURIComponent(firebaseConfig.projectId)}/authentication/settings`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold flex items-center gap-1.5"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          فتح إعدادات النطاقات في Firebase
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCustomFirebasePanel((v) => !v);
+                            setCustomFirebaseError(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-emerald-400 text-[10px] font-bold cursor-pointer"
+                        >
+                          {showCustomFirebasePanel ? 'إخفاء الربط المخصص' : 'أو ربط مشروع Firebase خاص بك'}
+                        </button>
+                      </div>
 
-                  {authError && (
-                    <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl text-[11px] text-red-300 space-y-2.5">
-                      <div className="font-mono leading-relaxed">{authError}</div>
-                      {authError.includes('auth/unauthorized-domain') && (
-                        <div className="pt-2 border-t border-red-500/20 space-y-2">
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => navigator.clipboard?.writeText(window.location.hostname)}
-                              className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Copy className="w-3 h-3 text-[#D4AF37]" />
-                              نسخ النطاق ({window.location.hostname})
-                            </button>
-                            <a
-                              href={`https://console.firebase.google.com/project/${encodeURIComponent(firebaseConfig.projectId)}/authentication/settings`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold flex items-center gap-1.5"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              فتح إعدادات النطاقات في Firebase
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowCustomFirebasePanel((v) => !v);
-                                setCustomFirebaseError(null);
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-emerald-400 text-[10px] font-bold cursor-pointer"
-                            >
-                              {showCustomFirebasePanel ? 'إخفاء الربط المخصص' : 'أو ربط مشروع Firebase خاص بك'}
-                            </button>
-                          </div>
-
-                          {(showCustomFirebasePanel || isUsingCustomFirebaseConfig) && (
-                            <div className="p-2.5 rounded-lg bg-gray-950 border border-gray-800 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-white">الصق firebaseConfig لمشروعك الخاص:</span>
-                                {isUsingCustomFirebaseConfig && (
-                                  <button
-                                    type="button"
-                                    onClick={resetCustomFirebaseConfig}
-                                    className="text-[10px] text-red-400 hover:underline cursor-pointer"
-                                  >
-                                    استعادة الافتراضي
-                                  </button>
-                                )}
-                              </div>
-                              <textarea
-                                rows={3}
-                                dir="ltr"
-                                value={customFirebaseRaw}
-                                onChange={(e) => {
-                                  setCustomFirebaseRaw(e.target.value);
-                                  setCustomFirebaseError(null);
-                                }}
-                                placeholder={'{\n  "apiKey": "AIza...",\n  "authDomain": "your-app.firebaseapp.com",\n  "projectId": "your-app",\n  "appId": "1:...:web:..."\n}'}
-                                className="w-full p-2 bg-gray-900 border border-gray-800 rounded-lg text-[10px] font-mono text-emerald-300 outline-none"
-                              />
-                              {customFirebaseError && (
-                                <p className="text-[10px] text-red-400">{customFirebaseError}</p>
-                              )}
+                      {(showCustomFirebasePanel || isUsingCustomFirebaseConfig) && (
+                        <div className="p-2.5 rounded-lg bg-gray-950 border border-gray-800 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-white">الصق firebaseConfig لمشروعك الخاص:</span>
+                            {isUsingCustomFirebaseConfig && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const parsed = parseFirebaseConfigInput(customFirebaseRaw);
-                                  if (!parsed) {
-                                    setCustomFirebaseError('تأكد من احتواء الكود على apiKey و authDomain و projectId و appId.');
-                                    return;
-                                  }
-                                  saveCustomFirebaseConfig(parsed);
-                                }}
-                                className="w-full py-2 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-[10px] rounded-lg cursor-pointer"
+                                onClick={resetCustomFirebaseConfig}
+                                className="text-[10px] text-red-400 hover:underline cursor-pointer"
                               >
-                                حفظ المشروع المخصص وإعادة التحميل
+                                استعادة الافتراضي
                               </button>
-                            </div>
+                            )}
+                          </div>
+                          <textarea
+                            rows={3}
+                            dir="ltr"
+                            value={customFirebaseRaw}
+                            onChange={(e) => {
+                              setCustomFirebaseRaw(e.target.value);
+                              setCustomFirebaseError(null);
+                            }}
+                            placeholder={'{\n  "apiKey": "AIza...",\n  "authDomain": "your-app.firebaseapp.com",\n  "projectId": "your-app",\n  "appId": "1:...:web:..."\n}'}
+                            className="w-full p-2 bg-gray-900 border border-gray-800 rounded-lg text-[10px] font-mono text-emerald-300 outline-none"
+                          />
+                          {customFirebaseError && (
+                            <p className="text-[10px] text-red-400">{customFirebaseError}</p>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const parsed = parseFirebaseConfigInput(customFirebaseRaw);
+                              if (!parsed) {
+                                setCustomFirebaseError('تأكد من احتواء الكود على apiKey و authDomain و projectId و appId.');
+                                return;
+                              }
+                              saveCustomFirebaseConfig(parsed);
+                            }}
+                            className="w-full py-2 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-[10px] rounded-lg cursor-pointer"
+                          >
+                            حفظ المشروع المخصص وإعادة التحميل
+                          </button>
                         </div>
                       )}
                     </div>
                   )}
-
-                  <button 
-                    type="submit" 
-                    disabled={authLoading}
-                    className="w-full py-3.5 bg-gradient-to-r from-[#D4AF37] to-[#b8972e] text-gray-950 font-bold rounded-xl shadow-lg hover:opacity-95 transition disabled:opacity-50"
-                  >
-                    {authLoading ? 'جاري المعالجة...' : authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء الحساب الجديد'}
-                  </button>
-
-                  <div className="pt-2 border-t border-gray-800">
-                    <button
-                      type="button"
-                      onClick={handleGuestLogin}
-                      className="w-full py-3.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
-                    >
-                      <Zap className="w-4 h-4 text-emerald-400" />
-                      الدخول الفوري السريع (Guest Local Forensic Mode)
-                    </button>
-                    <p className="text-[10px] text-gray-500 text-center mt-2">
-                      تخطي قيود النطاق (Authorized Domain) والبدء فوراً في فحص الأدلة.
-                    </p>
-                  </div>
-                </form>
+                </div>
               )}
-            </div>
 
-            <div className="text-center">
-              <p className="text-sm text-gray-500">
-                {authMode === 'login' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
-                <button 
-                  onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(null); }} 
-                  className="mr-2 text-[#D4AF37] font-bold hover:underline"
-                >
-                  {authMode === 'login' ? 'سجل الآن كخبير' : 'قم بتسجيل الدخول'}
-                </button>
-              </p>
+              <div className="pt-4 border-t border-gray-800 text-center space-y-1.5">
+                <p className="text-xs text-gray-400 font-medium">
+                  الوصول مقيد بحسابات Google عبر Firebase Authentication فقط.
+                </p>
+                <p className="text-[11px] text-gray-500">
+                  تم إيقاف وضع الزائر ولا يمكن عرض أي محتوى أو أدوات قبل إتمام المصادقة.
+                </p>
+              </div>
             </div>
           </div>
         ) : (
@@ -14035,7 +13917,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       </footer>
 
       {/* Official Printable Forensic PDF Certificate Modal */}
-      {showPrintModal && analysisResult && (
+      {authReady && user && showPrintModal && analysisResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white text-gray-950 rounded-2xl max-w-3xl w-full p-8 shadow-2xl space-y-6 relative print-certificate">
             <div className="flex items-center justify-between pb-4 border-b border-gray-300">
@@ -14125,7 +14007,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       )}
 
       {/* Add Chain of Custody Event Modal */}
-      {showAddCustodyModal && (custodyModalScope === 'global' || selectedEvidenceForHistory) && (
+      {authReady && user && showAddCustodyModal && (custodyModalScope === 'global' || selectedEvidenceForHistory) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="max-w-lg w-full bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
@@ -14252,7 +14134,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       )}
 
       {/* Official Chain of Custody Certificate Modal */}
-      {showCustodyCertificate && selectedEvidenceForHistory && (
+      {authReady && user && showCustodyCertificate && selectedEvidenceForHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white text-gray-950 rounded-2xl max-w-4xl w-full p-8 shadow-2xl space-y-6 print-certificate my-8">
             <div className="flex items-center justify-between pb-4 border-b border-gray-300">
@@ -14313,7 +14195,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       )}
 
       {/* Create New Investigation Modal */}
-      {showNewInvModal && (
+      {authReady && user && showNewInvModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="max-w-md w-full bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
@@ -14358,16 +14240,18 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       )}
 
       {/* Update Details Modal */}
-      <UpdateModal
-        isOpen={update.showModal}
-        onClose={() => update.setShowModal(false)}
-        updateDetails={update.updateDetails}
-        isUpdating={update.isUpdating}
-        applyUpdateNow={update.applyUpdateNow}
-      />
+      {authReady && user && (
+        <UpdateModal
+          isOpen={update.showModal}
+          onClose={() => update.setShowModal(false)}
+          updateDetails={update.updateDetails}
+          isUpdating={update.isUpdating}
+          applyUpdateNow={update.applyUpdateNow}
+        />
+      )}
 
       {/* Floating System & Forensic Status Toast */}
-      {(statusToast || update.toastMessage) && (
+      {(statusToast || (authReady && user && update.toastMessage)) && (
         <div className={`fixed bottom-14 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] bg-gray-900/95 border text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 backdrop-blur-md ${
           statusToast?.type === 'error'
             ? 'border-red-500 text-red-200'
@@ -14391,7 +14275,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       )}
 
       {/* Panic Lock & Auto-Lock Screen Overlay */}
-      {isLocked && (
+      {authReady && user && isLocked && (
         <div className="fixed inset-0 z-[100] bg-[#0b0f19]/98 flex items-center justify-center p-4 backdrop-blur-2xl animate-in fade-in duration-300">
           <div className="max-w-md w-full bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl text-center space-y-6 relative overflow-hidden">
             <div className={`absolute top-0 left-0 right-0 h-1.5 ${hasUserPin ? 'bg-gradient-to-r from-red-500 via-[#D4AF37] to-red-500 animate-pulse' : 'bg-gradient-to-r from-[#D4AF37] via-emerald-500 to-[#D4AF37]'}`} />
@@ -14547,7 +14431,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       )}
 
       {/* Manual PIN Change / Setup Modal */}
-      {showPinChangeModal && (
+      {authReady && user && showPinChangeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="max-w-md w-full bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl space-y-6 relative">
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
@@ -14626,46 +14510,50 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           </div>
         </div>
       )}
-      {/* Floating Quick Launcher for Dynamic Layout & UI Customizer */}
-      <button
-        type="button"
-        onClick={() => setShowLayoutCustomizer(true)}
-        title="تخصيص الهيكل والواجهة"
-        className="fixed bottom-12 left-5 z-40 no-print flex items-center gap-2 px-4 py-2.5 rounded-full bg-gray-900/95 hover:bg-gray-800 border border-[#D4AF37]/60 text-[#D4AF37] shadow-2xl shadow-black/70 backdrop-blur-md text-xs font-bold transition cursor-pointer"
-      >
-        <Sliders className="w-4 h-4" />
-        <span className="hidden md:inline">تخصيص الهيكل والواجهة</span>
-      </button>
+      {/* Floating Quick Launcher, Telemetry & Workspace Drawers (Authenticated Google Users Only) */}
+      {authReady && user && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowLayoutCustomizer(true)}
+            title="تخصيص الهيكل والواجهة"
+            className="fixed bottom-12 left-5 z-40 no-print flex items-center gap-2 px-4 py-2.5 rounded-full bg-gray-900/95 hover:bg-gray-800 border border-[#D4AF37]/60 text-[#D4AF37] shadow-2xl shadow-black/70 backdrop-blur-md text-xs font-bold transition cursor-pointer"
+          >
+            <Sliders className="w-4 h-4" />
+            <span className="hidden md:inline">تخصيص الهيكل والواجهة</span>
+          </button>
+
+          {/* Developer & System Telemetry Log Bar */}
+          <DeveloperTelemetryBar
+            networkOnline={networkInfo.online}
+            activeTab={activeTab}
+            logs={telemetryLogs}
+          />
+
+          {/* Dynamic Layout & UI Customizer Slide-Over Drawer */}
+          <LayoutCustomizerDrawer
+            isOpen={showLayoutCustomizer}
+            onClose={() => setShowLayoutCustomizer(false)}
+            preferences={uiPrefs}
+            onUpdatePreferences={updateUiPreferences}
+            onResetPreferences={resetUiPreferences}
+            syncStatus={uiSyncStatus}
+            isCloudAuthenticated={isCloudAuthenticated}
+          />
+
+          {/* Mobile / PWA Package Export Modal */}
+          <MobilePackageExportModal
+            isOpen={showExportModal}
+            onClose={() => setShowExportModal(false)}
+            onExportLogged={({ fileName, sha256 }) => {
+              notifyStatus(`تم تصدير الحزمة (${fileName}) بنجاح | SHA-256: ${sha256.slice(0, 12)}...`, 'success');
+            }}
+          />
+        </>
+      )}
 
       {/* Offline Connectivity Indicator */}
       <OfflineIndicator />
-
-      {/* Developer & System Telemetry Log Bar */}
-      <DeveloperTelemetryBar
-        networkOnline={networkInfo.online}
-        activeTab={activeTab}
-        logs={telemetryLogs}
-      />
-
-      {/* Dynamic Layout & UI Customizer Slide-Over Drawer */}
-      <LayoutCustomizerDrawer
-        isOpen={showLayoutCustomizer}
-        onClose={() => setShowLayoutCustomizer(false)}
-        preferences={uiPrefs}
-        onUpdatePreferences={updateUiPreferences}
-        onResetPreferences={resetUiPreferences}
-        syncStatus={uiSyncStatus}
-        isCloudAuthenticated={isCloudAuthenticated}
-      />
-
-      {/* Mobile / PWA Package Export Modal */}
-      <MobilePackageExportModal
-        isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        onExportLogged={({ fileName, sha256 }) => {
-          notifyStatus(`تم تصدير الحزمة (${fileName}) بنجاح | SHA-256: ${sha256.slice(0, 12)}...`, 'success');
-        }}
-      />
     </div>
   );
 }
