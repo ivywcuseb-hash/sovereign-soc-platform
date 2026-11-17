@@ -6283,8 +6283,86 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   </div>
 
                   {authError && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] text-red-400 font-mono">
-                      {authError}
+                    <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl text-[11px] text-red-300 space-y-2.5">
+                      <div className="font-mono leading-relaxed">{authError}</div>
+                      {authError.includes('auth/unauthorized-domain') && (
+                        <div className="pt-2 border-t border-red-500/20 space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => navigator.clipboard?.writeText(window.location.hostname)}
+                              className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Copy className="w-3 h-3 text-[#D4AF37]" />
+                              نسخ النطاق ({window.location.hostname})
+                            </button>
+                            <a
+                              href={`https://console.firebase.google.com/project/${encodeURIComponent(firebaseConfig.projectId)}/authentication/settings`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold flex items-center gap-1.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              فتح إعدادات النطاقات في Firebase
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowCustomFirebasePanel((v) => !v);
+                                setCustomFirebaseError(null);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-emerald-400 text-[10px] font-bold cursor-pointer"
+                            >
+                              {showCustomFirebasePanel ? 'إخفاء الربط المخصص' : 'أو ربط مشروع Firebase خاص بك'}
+                            </button>
+                          </div>
+
+                          {(showCustomFirebasePanel || isUsingCustomFirebaseConfig) && (
+                            <div className="p-2.5 rounded-lg bg-gray-950 border border-gray-800 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-white">الصق firebaseConfig لمشروعك الخاص:</span>
+                                {isUsingCustomFirebaseConfig && (
+                                  <button
+                                    type="button"
+                                    onClick={resetCustomFirebaseConfig}
+                                    className="text-[10px] text-red-400 hover:underline cursor-pointer"
+                                  >
+                                    استعادة الافتراضي
+                                  </button>
+                                )}
+                              </div>
+                              <textarea
+                                rows={3}
+                                dir="ltr"
+                                value={customFirebaseRaw}
+                                onChange={(e) => {
+                                  setCustomFirebaseRaw(e.target.value);
+                                  setCustomFirebaseError(null);
+                                }}
+                                placeholder={'{\n  "apiKey": "AIza...",\n  "authDomain": "your-app.firebaseapp.com",\n  "projectId": "your-app",\n  "appId": "1:...:web:..."\n}'}
+                                className="w-full p-2 bg-gray-900 border border-gray-800 rounded-lg text-[10px] font-mono text-emerald-300 outline-none"
+                              />
+                              {customFirebaseError && (
+                                <p className="text-[10px] text-red-400">{customFirebaseError}</p>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const parsed = parseFirebaseConfigInput(customFirebaseRaw);
+                                  if (!parsed) {
+                                    setCustomFirebaseError('تأكد من احتواء الكود على apiKey و authDomain و projectId و appId.');
+                                    return;
+                                  }
+                                  saveCustomFirebaseConfig(parsed);
+                                }}
+                                className="w-full py-2 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-[10px] rounded-lg cursor-pointer"
+                              >
+                                حفظ المشروع المخصص وإعادة التحميل
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
