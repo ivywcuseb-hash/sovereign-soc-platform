@@ -14447,7 +14447,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {isTabVisible('live_voice') && (
           <LiveVoiceAssistantLab
-            forensicSummaryContext={`المستخدم: ${userProfile?.displayName || user?.displayName || user?.email || 'محلل'} | القضايا: ${investigations.length} | الأدلة المحفوظة: ${evidenceList.length} | سجلات العمليات: ${auditLogs.length} | التنبيهات الحرجة/المرتفعة: ${auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length} | التغذيات الحية: ${liveFeedsResult?.items?.length || 0} | آخر دليل: ${evidenceList[0]?.fileName || 'لا يوجد'}`}
+            forensicSummaryContext={`المستخدم: ${userProfile?.displayName || user?.displayName || user?.email || 'محلل'} | القضايا: ${investigations.length}${investigations[0]?.title ? ` (${investigations[0].title})` : ''} | الأدلة المحفوظة: ${evidenceList.length}${evidenceList.length > 0 ? ` (أحدثها: ${evidenceList.slice(0, 3).map((e) => `${e.fileName} [${e.analysis?.riskLevel || '—'}]`).join('، ')})` : ''} | سجلات العمليات: ${auditLogs.length} | التنبيهات الحرجة/المرتفعة: ${auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length} | التغذيات الحية: ${liveFeedsResult?.items?.length || 0}${liveFeedsResult?.items?.length ? ` (أبرزها: ${liveFeedsResult.items.slice(0, 2).map((f) => f.title).join('؛ ')})` : ''}`}
             siteDataSnapshot={{
               userName: userProfile?.displayName || user?.displayName || undefined,
               userEmail: user?.email || undefined,

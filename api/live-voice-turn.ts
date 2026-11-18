@@ -109,7 +109,7 @@ async function fetchJsonWithTimeout(url: string, options: RequestInit = {}, time
 async function lookupLiveOsintFromPrompt(prompt: string): Promise<string[]> {
   const findings: string[] = [];
 
-  // 1. CVE lookup via CIRCL + CISA KEV check
+  // 1. CVE lookup via CIRCL + CISA KEV
   const cveMatch = prompt.match(/\bCVE-\d{4}-\d{4,7}\b/i);
   if (cveMatch) {
     const cveId = cveMatch[0].toUpperCase();
@@ -141,7 +141,7 @@ async function lookupLiveOsintFromPrompt(prompt: string): Promise<string[]> {
     }
   }
 
-  // 2. IPv4 lookup via ipwho.is + RDAP
+  // 2. IPv4 lookup via ipwho.is
   const ipMatch = prompt.match(/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/);
   if (ipMatch) {
     const ip = ipMatch[0];
@@ -153,7 +153,7 @@ async function lookupLiveOsintFromPrompt(prompt: string): Promise<string[]> {
     }
   }
 
-  // 3. Domain / URL DNS-over-HTTPS + MX/TXT lookup
+  // 3. Domain / URL DNS-over-HTTPS lookup
   const domainMatch = prompt.match(/\b([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.(?:com|net|org|io|app|gov|edu|ru|cn|ir|iq|sa|ae|uk|de|xyz|info|biz|me|co|top|dev))\b/i);
   if (domainMatch && !ipMatch) {
     const domain = domainMatch[1].toLowerCase();
@@ -215,68 +215,14 @@ async function lookupLiveOsintFromPrompt(prompt: string): Promise<string[]> {
   return findings;
 }
 
-async function lookupLiveWebKnowledge(query: string): Promise<string | null> {
-  const cleanTopic = query
-    .replace(/^(?:شنو|ما هو|ما هي|من هو|من هي|ما معنى|عرف|اشرح|اشرحلي|تكلم عن|اعطني معلومات عن|قولي عن|وضح|كيف يعمل|what is|who is|explain|define|tell me about)\s+/gi, '')
-    .replace(/[؟?]/g, '')
+function normalizeArabicText(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
     .trim();
-
-  if (!cleanTopic || cleanTopic.length < 2) return null;
-
-  const isArabic = /[\u0600-\u06FF]/.test(cleanTopic);
-  const wikiHost = isArabic ? 'ar.wikipedia.org' : 'en.wikipedia.org';
-
-  // 1. Wikipedia Search -> Summary API
-  const searchRes = await fetchJsonWithTimeout(
-    `https://${wikiHost}/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanTopic)}&format=json&srlimit=2`,
-    {},
-    4000
-  );
-  const topTitle: string | undefined = searchRes?.query?.search?.[0]?.title;
-  if (topTitle) {
-    const summaryRes = await fetchJsonWithTimeout(
-      `https://${wikiHost}/api/rest_v1/page/summary/${encodeURIComponent(topTitle)}`,
-      {},
-      4000
-    );
-    if (summaryRes?.extract) {
-      return `${summaryRes.title}: ${String(summaryRes.extract).slice(0, 750)}`;
-    }
-  }
-
-  // 2. DuckDuckGo Instant Answer API + English Wikipedia fallback
-  const [ddg, enSearch] = await Promise.all([
-    fetchJsonWithTimeout(
-      `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanTopic)}&format=json&no_html=1&skip_disambig=1`,
-      {},
-      3500
-    ),
-    isArabic
-      ? fetchJsonWithTimeout(
-          `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanTopic)}&format=json&srlimit=1`,
-          {},
-          3500
-        )
-      : Promise.resolve(null),
-  ]);
-
-  if (ddg?.AbstractText) {
-    return `${ddg.Heading || cleanTopic}: ${String(ddg.AbstractText).slice(0, 700)}`;
-  }
-
-  const enTitle: string | undefined = enSearch?.query?.search?.[0]?.title;
-  if (enTitle) {
-    const enSummary = await fetchJsonWithTimeout(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(enTitle)}`,
-      {},
-      3500
-    );
-    if (enSummary?.extract) {
-      return `${enSummary.title}: ${String(enSummary.extract).slice(0, 700)}`;
-    }
-  }
-
-  return null;
 }
 
 function trySafeArithmeticEval(query: string): string | null {
@@ -296,21 +242,11 @@ function trySafeArithmeticEval(query: string): string | null {
   return null;
 }
 
-function normalizeArabicText(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .replace(/ة/g, 'ه')
-    .trim();
-}
-
-function buildDeepSiteDataAnalysis(
+function buildConversationalAndSiteDataReply(
   userQuery: string,
   siteData: SiteDataSnapshot | null,
   osintFindings: string[]
-): string | null {
+): string {
   const norm = normalizeArabicText(userQuery);
   const counts = siteData?.counts || {
     investigations: 0,
@@ -327,7 +263,7 @@ function buildDeepSiteDataAnalysis(
   const feeds = siteData?.liveFeeds || [];
   const investigations = siteData?.investigations || [];
 
-  // Search for any specific filename / hash / feed keyword mentioned directly in userQuery
+  // 1. Matching evidence file or SHA-256 directly
   const matchingEvidence = evidence.filter(
     (e) =>
       (e.fileName && norm.includes(normalizeArabicText(e.fileName))) ||
@@ -338,7 +274,7 @@ function buildDeepSiteDataAnalysis(
       .slice(0, 3)
       .map(
         (e) =>
-          `الملف «${e.fileName}» (${e.detectedFileType || 'ملف'}): الحكم الجنائي = ${e.verdict || 'مفحوص'}، مستوى الخطورة = ${e.riskLevel || '—'}، درجة الأصالة = ${e.authenticityScore ?? '—'}%، البصمة SHA-256 = ${e.sha256}.`
+          `الملف «${e.fileName}» (${e.detectedFileType || 'ملف'}): التقييم = ${e.verdict || 'مفحوص'}، الخطورة = ${e.riskLevel || '—'}، درجة الأصالة = ${e.authenticityScore ?? '—'}%، البصمة SHA-256 = ${e.sha256}.`
       )
       .join('\n');
     return [...osintFindings, details].join('\n');
@@ -348,13 +284,21 @@ function buildDeepSiteDataAnalysis(
     return osintFindings.join('\n');
   }
 
-  // Conversational greeting / identity
-  if (/^(هلو|مرحبا|اهلا|السلام عليكم|سلام|صباح الخير|مساء الخير|شلونك|كيفك|hi|hello|hey)\b/.test(norm)) {
-    const who = siteData?.userName ? `يا ${siteData.userName}` : '';
-    return `أهلاً بك ${who}! أنا جاهز الآن ومرتبط ببيانات موقعك الفعلية (${counts.evidence} دليل، ${counts.auditLogs} عملية فحص، ${counts.liveFeeds} تغذية تهديد حية، و${counts.criticalAlerts} تنبيه حرج/مرتفع). اسألني عن أي ملف رفعته، أو أخطر تهديد مسجل، أو أي ثغرة CVE أو عنوان IP أو موضوع سيبراني وتقني.`;
+  // 2. Natural conversational greetings & small talk (NO Wikipedia/dictionary lookups!)
+  if (/^(هلو|مرحبا|اهلا|السلام عليكم|سلام|صباح الخير|مساء الخير|شلونك|شخبارك|كيفك|هلا|حياك|hi|hello|hey)\b/.test(norm)) {
+    const who = siteData?.userName ? `يا ${siteData.userName}` : 'بك';
+    return `أهلاً وسهلاً ${who}! أنا جاهز وموجود لخدمتك. كيف أقدر أساعدك اليوم؟ تقدر تسألني عن الأدلة والقضايا والتهديدات الحالية في منصتك (عندك الآن ${counts.evidence} دليل، ${counts.investigations} قضية، و${counts.liveFeeds} مؤشر تهديد حي) أو تطرح أي استفسار أمني وتقني مباشر.`;
   }
 
-  // Ranking riskiest / fake / suspicious files in evidence
+  if (/(من انت|شنو شغلك|ماذا تفعل|كيف تساعدني|شنو تكدر تسوي|وش تقدر تسوي)/.test(norm)) {
+    return `أنا الخبير السيبراني والمساعد الجنائي الذكي لمنصة Sovereign. أقدر أراجع معك ملفات الأدلة والبصمات، أحلل أخطر التهديدات والثغرات، أفحص عناوين IP والنطاقات وبصمات SHA-256 مباشرة، وأجاوب على أي سؤال تقني أو جنائي رقمي بكل وضوح.`;
+  }
+
+  if (/(شكرا|مشكور|تسلم|يعطيك العافيه|ممتاز|احسنت)/.test(norm)) {
+    return 'على الرحب والسعة! تحت أمرك في أي وقت، إذا احتجت فحص أي دليل أو استشارة أمنية أنا موجود.';
+  }
+
+  // 3. Riskiest / suspicious evidence
   if (/(اخطر|خطر|مزيف|تزييف|ملف مشبوه|مشبوهه|اسوا|اقل اصاله)/.test(norm) && evidence.length > 0) {
     const ranked = [...evidence].sort(
       (a, b) => (a.authenticityScore ?? 100) - (b.authenticityScore ?? 100)
@@ -370,16 +314,16 @@ function buildDeepSiteDataAnalysis(
       .slice(0, 5)
       .map(
         (e, i) =>
-          `${i + 1}) ${e.fileName} — التقييم: ${e.verdict || 'مفحوص'} (خطر: ${e.riskLevel || '—'} | أصالة: ${e.authenticityScore ?? '—'}% | SHA256: ${e.sha256.slice(0, 10)}...)`
+          `${i + 1}) ${e.fileName} — ${e.verdict || 'مفحوص'} (الخطر: ${e.riskLevel || '—'} | الأصالة: ${e.authenticityScore ?? '—'}%)`
       )
       .join('\n');
-    return `بناءً على فحص ${evidence.length} دليل محفوظ في خزنتك الفعلية، إليك أكثر الملفات خطورة أو انخفاضاً في درجة الأصالة:\n${list}`;
+    return `من واقع فحص ${evidence.length} دليل في خزنتك الحقيقية، هذه أبرز الملفات التي تحتاج انتباهك:\n${list}`;
   }
 
-  // Detailed evidence list request
+  // 4. Evidence list & active scan
   if (/(الادله|ادله|ملفاتي|الملفات|المرفوعه|الخزنه|اخر ملف|احدث ملف|sha)/.test(norm)) {
     if (evidence.length === 0 && !siteData?.currentAnalysis) {
-      return 'خزنتك السحابية لا تحتوي حالياً على ملفات أدلة محفوظة؛ ارفع صورة أو حزمة APK أو مستند PDF من وحدة التحليل ليتم تحليلها وحفظ بصمتها فوراً.';
+      return 'لا توجد ملفات أدلة محفوظة حالياً في الخزنة؛ يمكنك رفع أي صورة أو مستند أو حزمة APK في قسم التحليل وسأقوم بقراءة نتائجها معك فوراً.';
     }
     const itemsText = evidence
       .slice(0, 6)
@@ -389,44 +333,45 @@ function buildDeepSiteDataAnalysis(
       )
       .join('\n');
     const activeNote = siteData?.currentAnalysis
-      ? `\n• الملف النشط في الفاحص الآن: ${siteData.currentAnalysis.fileName} (${siteData.currentAnalysis.verdict} - ${siteData.currentAnalysis.authenticityScore}%).`
+      ? `\nالملف النشط حالياً في الفاحص: ${siteData.currentAnalysis.fileName} (${siteData.currentAnalysis.verdict} بنسبة أصالة ${siteData.currentAnalysis.authenticityScore}%).`
       : '';
-    return `إجمالي الأدلة الموثقة في حسابك هو ${counts.evidence} دليل.${activeNote}\nأحدث الأدلة المسجلة:\n${itemsText}`;
+    return `إجمالي الأدلة المسجلة لديك هو ${counts.evidence} دليل.${activeNote}\nأحدثها:\n${itemsText}`;
   }
 
-  // Threat feeds / CVEs / KEV
+  // 5. Threat feeds & CVEs
   if (/(التغذيات|تغذيه|ثغره|ثغرات|التهديدات|cve|kev|سي تو|c2|بوت نت)/.test(norm)) {
     if (feeds.length === 0) {
-      return `لديك ${counts.auditLogs} سجل فحص و${counts.criticalAlerts} تنبيه حرج؛ لكن جدول التغذيات الحية لم يُزامَن في هذه الجلسة بعد. يمكنك تشغيل «حدث التغذيات» لجلب آخر الثغرات وخوادم C2 الحية.`;
+      return `لديك ${counts.auditLogs} سجل فحص و${counts.criticalAlerts} تنبيه حرج أو مرتفع، لكن التغذيات الحية لم تُحدَّث في هذه الجلسة بعد؛ يمكنك الضغط على مزامنة التغذيات لجلب أحدث المؤشرات.`;
     }
     const criticalFeeds = feeds.filter((f) => f.severity === 'critical' || f.severity === 'high');
     const summary = (criticalFeeds.length > 0 ? criticalFeeds : feeds)
       .slice(0, 6)
       .map(
         (f, i) =>
-          `${i + 1}) [${f.severityAr || f.severity || 'تنبيه'}] ${f.title}${f.indicator ? ` — المؤشر: ${f.indicator}` : ''}${f.sourceName ? ` (${f.sourceName})` : ''}`
+          `${i + 1}) [${f.severityAr || f.severity || 'تنبيه'}] ${f.title}${f.indicator ? ` (${f.indicator})` : ''}`
       )
       .join('\n');
-    return `تقرير التغذيات الحية الفعلي (${feeds.length} مؤشر، منها ${criticalFeeds.length} حرج/مرتفع):\n${summary}`;
+    return `آخر بيانات التغذيات الحية (${feeds.length} مؤشر، منها ${criticalFeeds.length} بمستوى حرج أو مرتفع):\n${summary}`;
   }
 
-  // Full stats / audit logs / investigations / cases
+  // 6. Site stats, cases, audit logs
   if (/(احصائيات|ملخص|حاله الموقع|العمليات|السجل|القضايا|قضيه|تحقيق|حيازه|تيليمتري|بيانات موقعي)/.test(norm)) {
     const invText =
       investigations.length > 0
-        ? `\n• القضايا المفتوحة (${investigations.length}): ${investigations.slice(0, 4).map((i) => `${i.title} [${i.status || 'نشط'}]`).join('، ')}`
+        ? `\n• القضايا (${investigations.length}): ${investigations.slice(0, 4).map((i) => `${i.title} [${i.status || 'نشط'}]`).join('، ')}`
         : '';
     const logText =
       auditLogs.length > 0
-        ? `\n• آخر العمليات (${auditLogs.length}):\n${auditLogs
-            .slice(0, 5)
-            .map((l, idx) => `${idx + 1}) ${l.fileName} -> ${l.verdict || l.risk || 'مكتمل'}`)
+        ? `\n• آخر العمليات:\n${auditLogs
+            .slice(0, 4)
+            .map((l, idx) => `${idx + 1}) ${l.fileName} — ${l.verdict || l.risk || 'مكتمل'}`)
             .join('\n')}`
         : '';
-    return `ملخص البيانات الحقيقية المباشرة لمنصتك الآن:\n• الأدلة الرقمية: ${counts.evidence} | سجلات العمليات: ${counts.auditLogs} | القضايا: ${counts.investigations} | سلسلة الحيازة: ${counts.custody}\n• التغذيات الحية: ${counts.liveFeeds} | التنبيهات الحرجة/المرتفعة: ${counts.criticalAlerts} | التقارير الموثقة: ${counts.savedReports}${invText}${logText}`;
+    return `إحصائيات منصتك الحقيقية الآن:\n• الأدلة: ${counts.evidence} | القضايا: ${counts.investigations} | العمليات: ${counts.auditLogs} | التنبيهات الحرجة: ${counts.criticalAlerts} | التغذيات الحية: ${counts.liveFeeds}${invText}${logText}`;
   }
 
-  return null;
+  // 7. Honest prompt when GEMINI_API_KEY isn't configured on serverless host for open-ended questions
+  return `وصلتني رسالتك (${userQuery}). بيانات موقعك المتاحة لدي الآن تشمل ${counts.evidence} دليل، ${counts.investigations} قضية، و${counts.liveFeeds} تهديد حي — ولإتاحة إجابات الذكاء الاصطناعي التوليدية الحرة لكل الأسئلة العامة من خادم Vercel، تأكد من ضبط متغير البيئة GEMINI_API_KEY في إعدادات المشروع على Vercel.`;
 }
 
 async function queryOpenLlmFallback(
@@ -445,7 +390,7 @@ async function queryOpenLlmFallback(
     ];
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 9000);
+    const timer = setTimeout(() => controller.abort(), 8000);
     const res = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST',
       signal: controller.signal,
@@ -497,7 +442,7 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'يرجى التحدث أو كتابة رسالة للمساعد.' });
     }
 
-    // Always gather live real-time OSINT facts for any indicator mentioned in the prompt
+    // Gather live OSINT facts only if user explicitly mentioned an IP, CVE, domain, or hash
     const osintFindings = effectiveQuery ? await lookupLiveOsintFromPrompt(effectiveQuery) : [];
 
     const structuredSnapshotText = siteData
@@ -523,27 +468,28 @@ export default async function handler(req: any, res: any) {
 
     const historyBlock =
       history.length > 0
-        ? `\nسجل المحادثة السابقة:\n${history
+        ? `\nسجل الحوار السابق:\n${history
             .map((h) => `${h.role === 'user' ? 'المستخدم' : 'المساعد'}: ${String(h.text || '').slice(0, 450)}`)
             .join('\n')}`
         : '';
 
-    const systemInstruction = `أنت المساعد الذكي الشامل (AI Assistant & Forensic Analyst) داخل منصة SOVEREIGN FORENSIC ENGINE.
-قواعدك:
-1. أجب على جميع أسئلة المستخدم بذكاء ودقة وشمولية (سواء كانت عن ملفات وأدلة وتهديدات موقعه الحقيقية، أو أسئلة تقنية وبرمجية وسيبرانية، أو أسئلة عامة في أي مجال).
-2. عندما يسأل المستخدم عن موقعه أو ملفاته أو ثغراته أو سجلاته، استخرج الإجابة من البيانات الحقيقية المرفقة أدناه بالأسماء والأرقام والبصمات الفعلية دون أي اختلاق.
-3. تحدث بالعربية الطبيعية الواضحة (أو باللهجة التي يخاطبك بها المستخدم أو بالإنجليزية إذا سأل بالإنجليزية).
-4. اجعل ردودك مباشرة ووافية ومناسبة للقراءة وللنطق الصوتي.
+    const systemInstruction = `أنت خبير تحقيق جنائي رقمي وأمن سيبراني ومساعد ذكاء اصطناعي حقيقي لمنصة SOVEREIGN FORENSIC ENGINE.
+أسلوبك وشخصيتك:
+- تتحدث بلهجة عربية طبيعية، ذكية، ودودة، ومباشرة (وتجيد اللهجة العراقية والفصحى المبسطة والإنجليزية إذا سُئلت بها).
+- ترد على التحيات (مثل مرحبا، هلو، السلام عليكم) والأسئلة العامة والبرمجية والأمنية بطلاقة كأي خبير بشري، ولا تذكر إحصائيات الموقع إلا إذا سألك المستخدم عنها أو ارتبطت بسؤاله.
+- لديك وصول مباشر إلى بيانات موقع المستخدم الحقيقية (عدد الأدلة، القضايا، التهديدات، سجلات العمليات، والتغذيات الحية)؛ وعند سؤالك عنها أجب بدقة تامة بالأرقام والأسماء والبصمات الفعلية دون أي اختلاق.
+- صِغ ردودك بشكل واضح وسلس يناسب القراءة والنطق الصوتي المباشر.
 ${forensicContext ? `\nملخص حالة المنصة:\n${forensicContext}` : ''}
-${structuredSnapshotText ? `\nقاعدة بيانات الموقع الحية الكاملة للمستخدم الآن:\n${structuredSnapshotText}` : ''}
-${osintFindings.length > 0 ? `\nبيانات فحص OSINT الحية للمؤشرات المذكورة:\n${osintFindings.join('\n')}` : ''}
+${structuredSnapshotText ? `\nالبيانات الحقيقية المباشرة لمنصة المستخدم الآن:\n${structuredSnapshotText}` : ''}
+${osintFindings.length > 0 ? `\nنتائج فحص OSINT الحية للمؤشرات المذكورة:\n${osintFindings.join('\n')}` : ''}
 ${historyBlock}`;
 
-    // TIER 1: Full Gemini SDK (GEMINI_API_KEY / GOOGLE_API_KEY) with Google Search Grounding + Audio TTS
+    // Direct Gemini API Integration (AI Studio & Vercel GEMINI_API_KEY)
     const apiKey =
       process.env.GEMINI_API_KEY ||
       process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-      process.env.GOOGLE_API_KEY;
+      process.env.GOOGLE_API_KEY ||
+      process.env.VITE_GEMINI_API_KEY;
 
     if (apiKey && apiKey !== 'dummy-key') {
       const ai = new GoogleGenAI({
@@ -567,47 +513,49 @@ ${historyBlock}`;
       parts.push({
         text:
           effectiveQuery ||
-          'استمع إلى رسالة المستخدم الصوتية وأجب عليها بدقة شاملة بالاعتماد على البيانات الحقيقية ومعرفتك الكاملة.',
+          'استمع إلى رسالة المستخدم الصوتية وتفاعل معها بذكاء وطلاقة كخبير تحقيق رقمي وأمن سيبراني.',
       });
 
-      for (const modelName of ['gemini-4-hydrogen', 'gemini-2.5-flash']) {
+      for (const modelName of ['gemini-4-hydrogen', 'gemini-2.5-flash', 'gemini-2.0-flash']) {
         try {
           const response = await ai.models.generateContent({
             model: modelName,
             contents: { parts },
             config: {
               systemInstruction,
-              tools: [{ googleSearch: {} }],
             },
           });
 
           const replyText = (response.text || '').trim();
           if (replyText) {
             let audioPcmBase64: string | null = null;
-            try {
-              const ttsResponse = await ai.models.generateContent({
-                model: 'gemini-3.8-flash-lite-tts',
-                contents: replyText,
-                config: {
-                  responseModalities: [Modality.AUDIO],
-                  speechConfig: {
-                    voiceConfig: {
-                      prebuiltVoiceConfig: { voiceName },
+            for (const ttsModel of ['gemini-3.8-flash-lite-tts', 'gemini-2.5-flash-preview-tts']) {
+              try {
+                const ttsResponse = await ai.models.generateContent({
+                  model: ttsModel,
+                  contents: replyText,
+                  config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: {
+                      voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName },
+                      },
                     },
                   },
-                },
-              });
-              const audioPart = ttsResponse.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData?.data);
-              if (audioPart?.inlineData?.data) {
-                audioPcmBase64 = audioPart.inlineData.data;
+                });
+                const audioPart = ttsResponse.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData?.data);
+                if (audioPart?.inlineData?.data) {
+                  audioPcmBase64 = audioPart.inlineData.data;
+                  break;
+                }
+              } catch {
+                // try next TTS model or let browser speech synthesis read replyText
               }
-            } catch {
-              // Client automatically falls back to browser speech synthesis if PCM audio isn't returned
             }
 
             return res.status(200).json({
               success: true,
-              engine: `${modelName}+grounding`,
+              engine: modelName,
               replyText,
               recognizedText: effectiveQuery || undefined,
               audioPcmBase64,
@@ -616,12 +564,12 @@ ${historyBlock}`;
             });
           }
         } catch {
-          // Try next Gemini model or fall through
+          // Try next Gemini model
         }
       }
     }
 
-    // TIER 2: Check deterministic real-data / math / live OSINT queries on the user's site data FIRST if specifically about site records or indicators
+    // Safe arithmetic check
     const mathAnswer = effectiveQuery ? trySafeArithmeticEval(effectiveQuery) : null;
     if (mathAnswer) {
       return res.status(200).json({
@@ -635,13 +583,13 @@ ${historyBlock}`;
       });
     }
 
-    // TIER 3: Open Generative LLM Gateway (answers ANY general, coding, cyber, or site-data question conversationally)
+    // Open Generative LLM when GEMINI_API_KEY is absent on external Vercel deployment
     if (effectiveQuery) {
       const openAiReply = await queryOpenLlmFallback(systemInstruction, history, effectiveQuery);
       if (openAiReply) {
         return res.status(200).json({
           success: true,
-          engine: 'sovereign-open-ai-core',
+          engine: 'sovereign-ai-gateway',
           replyText: openAiReply,
           recognizedText: effectiveQuery,
           audioPcmBase64: null,
@@ -651,43 +599,17 @@ ${historyBlock}`;
       }
     }
 
-    // TIER 4: Deep Real-Site Data Query + Live Wikipedia/DuckDuckGo Knowledge Synthesis (Never rate-limited, always real!)
-    const deepSiteReply = effectiveQuery
-      ? buildDeepSiteDataAnalysis(effectiveQuery, siteData, osintFindings)
-      : null;
-    if (deepSiteReply) {
-      return res.status(200).json({
-        success: true,
-        engine: 'sovereign-live-data-core',
-        replyText: deepSiteReply,
-        recognizedText: effectiveQuery,
-        audioPcmBase64: null,
-        sampleRate: 24000,
-        useBrowserTts: true,
-      });
-    }
-
-    const webKnowledge = effectiveQuery ? await lookupLiveWebKnowledge(effectiveQuery) : null;
-    if (webKnowledge) {
-      return res.status(200).json({
-        success: true,
-        engine: 'sovereign-live-knowledge-core',
-        replyText: webKnowledge,
-        recognizedText: effectiveQuery,
-        audioPcmBase64: null,
-        sampleRate: 24000,
-        useBrowserTts: true,
-      });
-    }
-
-    const finalFallback =
-      buildDeepSiteDataAnalysis('ملخص النظام', siteData, osintFindings) ||
-      'لم أتمكن من التقاط نص واضح من سؤالك؛ اكتب سؤالك أو انطق به بوضوح وسأبحث فوراً في بيانات موقعك أو المصادر الحية للإجابة عليك.';
+    // Conversational + Real Site Data response (NO Wikipedia or dictionary lookups!)
+    const finalReply = buildConversationalAndSiteDataReply(
+      effectiveQuery || 'مرحبا',
+      siteData,
+      osintFindings
+    );
 
     return res.status(200).json({
       success: true,
-      engine: 'sovereign-live-data-core',
-      replyText: finalFallback,
+      engine: 'sovereign-forensic-core',
+      replyText: finalReply,
       recognizedText: effectiveQuery || undefined,
       audioPcmBase64: null,
       sampleRate: 24000,
