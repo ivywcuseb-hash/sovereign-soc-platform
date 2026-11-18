@@ -73,7 +73,18 @@ function loadActiveFirebaseConfig(): { config: SovereignFirebaseConfig; isCustom
   } catch {
     // Fallback cleanly to active provisioned config
   }
-  return { config: defaultFirebaseConfig as SovereignFirebaseConfig, isCustom: false };
+  const baseConfig = defaultFirebaseConfig as SovereignFirebaseConfig;
+  const resolvedAuthDomain = (
+    (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || 'sovqs.vercel.app'
+  ).trim().toLowerCase();
+
+  return {
+    config: {
+      ...baseConfig,
+      authDomain: resolvedAuthDomain,
+    },
+    isCustom: false,
+  };
 }
 
 const { config: firebaseConfig, isCustom: isUsingCustomFirebaseConfig } = loadActiveFirebaseConfig();
