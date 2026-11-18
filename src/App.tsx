@@ -78,7 +78,8 @@ import {
   ScanEye,
   Radar,
   PieChart,
-  AudioLines
+  AudioLines,
+  Mic
 } from 'lucide-react';
 import {
   LayoutCustomizerDrawer,
@@ -186,6 +187,7 @@ import {
   AssetOsDistributionDashboard,
 } from './components/SocDashboardsSuite';
 import { LiveVoiceAssistantLab } from './components/LiveVoiceAssistantLab';
+import { VoiceCommandController } from './components/VoiceCommandController';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
@@ -445,6 +447,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [setupError, setSetupError] = useState<string | null>(null);
   const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
   const [showPinChangeModal, setShowPinChangeModal] = useState<boolean>(false);
+  const [showVoiceCommandHud, setShowVoiceCommandHud] = useState<boolean>(false);
+  const lastPickedFileRef = React.useRef<File | null>(null);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
@@ -2625,6 +2629,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   };
 
   const inspectPickedFile = (file: File) => {
+    lastPickedFileRef.current = file;
     const lowerName = file.name.toLowerCase();
     if (lowerName.endsWith('.apk')) {
       setActiveTab('apk');
@@ -2691,6 +2696,45 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     if (!file) return;
     e.target.value = '';
     inspectPickedFile(file);
+  };
+
+  const handleVoiceInspectLatestFile = async (): Promise<string> => {
+    if (lastPickedFileRef.current) {
+      const targetFile = lastPickedFileRef.current;
+      handleSelectTab('analyzer');
+      inspectPickedFile(targetFile);
+      return `جاري إعادة فحص الملف الأخير الحقيقي: ${targetFile.name} (${formatFileSize(targetFile.size)}).`;
+    }
+    if (evidenceList.length > 0) {
+      const latestEv = evidenceList[0];
+      handleSelectTab('analyzer');
+      if (latestEv.analysis) {
+        setAnalysisResult(latestEv.analysis);
+        setImageName(latestEv.fileName);
+        if (latestEv.fileUrl) setSelectedImage(latestEv.fileUrl);
+      }
+      const verdict = latestEv.analysis?.verdict || 'محفوظ ومفحوص';
+      const risk = latestEv.analysis?.riskLevel || 'غير محدد';
+      const authScore = latestEv.analysis?.authenticityScore ?? 0;
+      void saveAuditLog({
+        id: `voice-scan-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        fileName: `أمر صوتي: فحص ${latestEv.fileName}`,
+        fileSize: formatFileSize(latestEv.fileSize || 0),
+        verdict,
+        score: authScore,
+        risk,
+        type: 'clipboard',
+        sha256: latestEv.sha256,
+      });
+      return `تم تحميل وفحص أحدث دليل من خزنتك الحقيقية: ${latestEv.fileName}. النتيجة: ${verdict}، مستوى الخطورة: ${risk}، نسبة الأصالة: ${authScore} بالمئة.`;
+    }
+    if (analysisResult) {
+      handleSelectTab('analyzer');
+      return `الملف النشط حالياً هو ${analysisResult.fileName}، النتيجة: ${analysisResult.verdict}، مستوى الخطورة: ${analysisResult.riskLevel}، ونسبة الأصالة ${analysisResult.authenticityScore} بالمئة.`;
+    }
+    handleSelectTab('analyzer');
+    return 'لا يوجد ملف مرفوع حالياً في الجلسة أو الخزنة؛ تم فتح وحدة التحليل الرقمي لاختيار ملف للفحص.';
   };
 
   const handleLogFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -6081,6 +6125,19 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 >
                   <Dices className="w-3.5 h-3.5" />
                   <span className="hidden xl:inline text-[10px]">ثيم عشوائي</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowVoiceCommandHud((v) => !v)}
+                  title="لوحة الأوامر والتحكم الصوتي المباشر (Web Speech API)"
+                  className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl font-sans font-bold transition cursor-pointer shadow-sm border ${
+                    showVoiceCommandHud
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400'
+                      : 'bg-gray-900/90 hover:bg-gray-800 text-emerald-400 border-emerald-500/40'
+                  }`}
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline text-[10px]">أوامر صوتية</span>
                 </button>
               </div>
 
@@ -15133,6 +15190,56 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             <Sliders className="w-4 h-4" />
             <span className="hidden md:inline">تخصيص الهيكل والواجهة</span>
           </button>
+
+          {!showVoiceCommandHud && (
+            <button
+              type="button"
+              onClick={() => setShowVoiceCommandHud(true)}
+              title="تفعيل الأوامر الصوتية (Web Speech API)"
+              className="fixed bottom-12 right-5 z-40 no-print flex items-center gap-2 px-4 py-2.5 rounded-full bg-gray-900/95 hover:bg-gray-800 border border-emerald-500/60 text-emerald-400 shadow-2xl shadow-black/70 backdrop-blur-md text-xs font-bold transition cursor-pointer"
+            >
+              <Mic className="w-4 h-4" />
+              <span className="hidden md:inline">أوامر صوتية</span>
+            </button>
+          )}
+
+          {/* Global Web Speech API Voice Command Controller */}
+          <VoiceCommandController
+            isOpen={showVoiceCommandHud}
+            onToggleOpen={setShowVoiceCommandHud}
+            activeTab={activeTab}
+            onNavigateTab={handleSelectTab}
+            onInspectLatestFile={handleVoiceInspectLatestFile}
+            onSyncLiveFeeds={async () => {
+              handleSelectTab('live_feeds');
+              await syncLiveThreatFeedsNow(false);
+              return 'تم تشغيل مزامنة التغذيات الحية وجلب أحدث مؤشرات التهديدات.';
+            }}
+            onInspectClipboard={async () => {
+              handleSelectTab('clipboard');
+              await inspectLiveClipboard();
+              return 'تم فحص الحافظة الحية وعرض النتيجة.';
+            }}
+            onGetStatusSummary={() => {
+              const critical = auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length;
+              return `حالة النظام الحية: لديك ${evidenceList.length} دليل رقمي، ${auditLogs.length} سجل عمليات، ${investigations.length} قضية، ${liveFeedsResult?.items?.length || 0} مؤشر تغذية حية، و${critical} تنبيه حرج أو مرتفع.`;
+            }}
+            onOpenCustomizer={() => setShowLayoutCustomizer(true)}
+            onRandomTheme={() => {
+              const picked = pickRandomProceduralTheme(uiPrefs.proceduralThemeId);
+              updateUiPreferences({
+                themePreset: 'procedural',
+                proceduralThemeId: picked.id,
+              });
+              return `تم تطبيق الثيم الإجرائي ${picked.nameAr}.`;
+            }}
+            onLockSystem={() => onLockSystem()}
+            onTriggerOsintQuery={(indicator) => {
+              setThreatIntelInput(indicator);
+              handleSelectTab('threat_intel');
+            }}
+            onNotify={notifyStatus}
+          />
 
           {/* Developer & System Telemetry Log Bar */}
           <DeveloperTelemetryBar
