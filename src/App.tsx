@@ -6302,7 +6302,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   }`}
                 >
                   <CheckCircle2 className="w-3 h-3 shrink-0" />
-                  <span>{domainVerification.hostname} • {firebaseConfig.projectId}</span>
+                  <span>{domainVerification.hostname}</span>
                 </div>
                 {!domainVerification.isRecognizedDomain && (
                   <div className="pt-1">
