@@ -16,6 +16,8 @@ import { BUILTIN_THREAT_FEEDS, syncLiveThreatFeeds } from './src/utils/liveThrea
 import breachLookupHandler from './api/breach-lookup.ts';
 import sslInspectHandler from './api/ssl-inspect.ts';
 import ipGeoThreatHandler from './api/ip-geo-threat.ts';
+import malwareHashHandler from './api/malware-hash.ts';
+import urlTraceHandler from './api/url-trace.ts';
 import {
   type AuthedRequest,
   securityMonitor,
@@ -1500,6 +1502,8 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
   app.post('/api/breach-lookup', probeRateLimit, optionalVerifiedAuth, (req, res) => breachLookupHandler(req, res));
   app.post('/api/ssl-inspect', probeRateLimit, optionalVerifiedAuth, (req, res) => sslInspectHandler(req, res));
   app.post('/api/ip-geo-threat', probeRateLimit, optionalVerifiedAuth, (req, res) => ipGeoThreatHandler(req, res));
+  app.post('/api/malware-hash', probeRateLimit, optionalVerifiedAuth, (req, res) => malwareHashHandler(req, res));
+  app.post('/api/url-trace', probeRateLimit, optionalVerifiedAuth, (req, res) => urlTraceHandler(req, res));
 
   // Search API
   app.post('/api/search', aiRateLimit, optionalVerifiedAuth, async (req, res) => {

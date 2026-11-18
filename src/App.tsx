@@ -71,7 +71,11 @@ import {
   Columns,
   Dices,
   KeyRound,
-  FolderArchive
+  FolderArchive,
+  Bug,
+  FileCheck2,
+  Route,
+  ScanEye
 } from 'lucide-react';
 import {
   LayoutCustomizerDrawer,
@@ -167,6 +171,12 @@ import {
   SslInspectorLab,
   IpGeoThreatMapperLab,
 } from './components/SecurityToolkitLabs';
+import {
+  MalwareHashLookupLab,
+  PdfDocumentForensicsLab,
+  UrlRedirectTracerLab,
+  StegLsbInspectorLab,
+} from './components/ForensicDeepLabs';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
@@ -427,7 +437,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
   const [showPinChangeModal, setShowPinChangeModal] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -5982,6 +5992,22 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 <MapPin className="w-4 h-4" />
                 خريطة الـ IP
               </button>
+              <button onClick={() => handleSelectTab('malware_hash')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('malware_hash') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Bug className="w-4 h-4" />
+                بصمات الفيروسات
+              </button>
+              <button onClick={() => handleSelectTab('pdf_forensics')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('pdf_forensics') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <FileCheck2 className="w-4 h-4" />
+                محلل PDF
+              </button>
+              <button onClick={() => handleSelectTab('url_tracer')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('url_tracer') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Route className="w-4 h-4" />
+                متتبع الروابط
+              </button>
+              <button onClick={() => handleSelectTab('steg_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('steg_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <ScanEye className="w-4 h-4" />
+                كاشف الإخفاء LSB
+              </button>
               <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
                 <FileText className="w-4 h-4" />
                 التقارير الموثقة
@@ -6278,6 +6304,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             <button onClick={() => handleSelectTab('archive_extractor')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('archive_extractor') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تحليل الأرشيف</button>
             <button onClick={() => handleSelectTab('ssl_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ssl_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>شهادات SSL</button>
             <button onClick={() => handleSelectTab('ip_mapper')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ip_mapper') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>خريطة الـ IP</button>
+            <button onClick={() => handleSelectTab('malware_hash')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('malware_hash') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>بصمات الفيروسات</button>
+            <button onClick={() => handleSelectTab('pdf_forensics')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('pdf_forensics') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل PDF</button>
+            <button onClick={() => handleSelectTab('url_tracer')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('url_tracer') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>متتبع الروابط</button>
+            <button onClick={() => handleSelectTab('steg_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('steg_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>كاشف الإخفاء LSB</button>
             <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
             <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
           </div>
@@ -14173,6 +14203,82 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {isTabVisible('ip_mapper') && (
           <IpGeoThreatMapperLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('malware_hash') && (
+          <MalwareHashLookupLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('pdf_forensics') && (
+          <PdfDocumentForensicsLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('url_tracer') && (
+          <UrlRedirectTracerLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('steg_inspector') && (
+          <StegLsbInspectorLab
             onNotify={notifyStatus}
             onRecordAudit={(p) =>
               void saveAuditLog({

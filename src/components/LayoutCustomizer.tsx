@@ -41,6 +41,10 @@ import {
   FolderArchive,
   Lock,
   MapPin,
+  Bug,
+  FileCheck2,
+  Route,
+  ScanEye,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -74,7 +78,11 @@ export type AppTabId =
   | 'breach_lookup'
   | 'archive_extractor'
   | 'ssl_inspector'
-  | 'ip_mapper';
+  | 'ip_mapper'
+  | 'malware_hash'
+  | 'pdf_forensics'
+  | 'url_tracer'
+  | 'steg_inspector';
 
 export type LayoutStructure =
   | 'top'
@@ -156,6 +164,10 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'archive_extractor', label: 'تحليل الأرشيف (ZIP)', shortLabel: 'الأرشيف', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
   { id: 'ssl_inspector', label: 'فحص شهادات SSL/TLS', shortLabel: 'SSL/TLS', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
   { id: 'ip_mapper', label: 'خريطة الـ IP والتهديدات', shortLabel: 'خريطة IP', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'malware_hash', label: 'فاحص بصمات الفيروسات', shortLabel: 'Malware Hash', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'pdf_forensics', label: 'محلل المستندات (PDF)', shortLabel: 'مستندات PDF', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'url_tracer', label: 'متتبع الروابط المختصرة', shortLabel: 'تتبع الروابط', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'steg_inspector', label: 'كاشف الإخفاء (LSB Steg)', shortLabel: 'إخفاء الصور', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
 
   { id: 'profile', label: 'الحساب والإعدادات', shortLabel: 'الحساب', group: 'system', groupLabel: 'النظام والهوية' },
 ];
@@ -208,6 +220,14 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <Lock className={className} />;
     case 'ip_mapper':
       return <MapPin className={className} />;
+    case 'malware_hash':
+      return <Bug className={className} />;
+    case 'pdf_forensics':
+      return <FileCheck2 className={className} />;
+    case 'url_tracer':
+      return <Route className={className} />;
+    case 'steg_inspector':
+      return <ScanEye className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:
