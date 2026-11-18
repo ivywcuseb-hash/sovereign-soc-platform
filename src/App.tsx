@@ -157,6 +157,9 @@ import {
   db, 
   storage, 
   firebaseConfig,
+  PRIMARY_VERCEL_DOMAIN,
+  createGoogleAuthProvider,
+  verifyAppDomainForGoogleAuth,
   isUsingCustomFirebaseConfig,
   parseFirebaseConfigInput,
   saveCustomFirebaseConfig,
@@ -164,14 +167,11 @@ import {
   signOut, 
   handleFirestoreError, 
   OperationType,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
   sendEmailVerification,
   sendPasswordResetEmail,
   updateProfile,
   uploadBytesResumable,
   deleteObject,
-  GoogleAuthProvider,
   signInWithPopup
 } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -414,6 +414,24 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const domainVerification = React.useMemo(() => verifyAppDomainForGoogleAuth(), []);
+
+  useEffect(() => {
+    if (domainVerification.isLegacyVercelDomain && typeof window !== 'undefined') {
+      const targetUrl = `https://${PRIMARY_VERCEL_DOMAIN}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.location.replace(targetUrl);
+    }
+  }, [domainVerification.isLegacyVercelDomain]);
+
+  const resolvedUserEmail =
+    user?.email ||
+    user?.providerData?.find((p) => p.providerId === 'google.com')?.email ||
+    userProfile?.email ||
+    '';
+  const isEmailVerifiedOrGoogle = Boolean(
+    user?.emailVerified ||
+    user?.providerData?.some((p) => p.providerId === 'google.com')
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -1306,6 +1324,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       }
 
       if (u && isGoogleUser) {
+        const googleEmail =
+          u.email ||
+          u.providerData?.find((provider) => provider.providerId === 'google.com')?.email ||
+          '';
         setUser(u);
         setIsCloudAuthenticated(true);
         try {
@@ -1316,7 +1338,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           if (!profileSnap.exists()) {
             const newProfile: UserProfile = {
               uid: u.uid,
-              email: (u.email || '').slice(0, 320),
+              email: googleEmail.slice(0, 320),
               displayName: (u.displayName || 'محقق جديد').slice(0, 128),
               photoURL: (u.photoURL || '').slice(0, 2048),
               role: 'analyst',
@@ -1653,15 +1675,12 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const formatAuthError = (err: any, fallback: string) => {
     const code = err?.code || '';
     const msg = err?.message || '';
-    if (code === 'auth/unauthorized-domain') return `نطاق التطبيق الحالي (${window.location.hostname}) غير مضاف إلى النطاقات المصرح بها في مشروع Firebase (${firebaseConfig.projectId}).`;
+    if (code === 'auth/unauthorized-domain') return `نطاق التطبيق الحالي (${window.location.hostname}) غير مضاف إلى النطاقات المصرح بها في مشروع Firebase (${firebaseConfig.projectId}). تأكد من إضافة ${PRIMARY_VERCEL_DOMAIN} في Firebase Console.`;
     if (code === 'auth/popup-blocked') return 'المتصفح منع فتح نافذة تسجيل الدخول. يرجى السماح بالنوافذ المنبثقة (Popups).';
     if (code === 'auth/popup-closed-by-user') return 'تم إغلاق نافذة تسجيل الدخول قبل إتمام العملية.';
     if (code === 'auth/cancelled-popup-request') return 'تم إلغاء طلب نافذة تسجيل الدخول بسبب فتح نافذة أخرى.';
     if (code === 'auth/account-exists-with-different-credential') return 'هذا البريد مرتبط بطريقة دخول أخرى.';
-    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
-    if (code === 'auth/email-already-in-use') return 'هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.';
-    if (code === 'auth/weak-password') return 'كلمة المرور ضعيفة جداً (يجب أن لا تقل عن 6 أحرف).';
-    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول هذا غير مفعل حالياً في إعدادات Firebase.';
+    if (code === 'auth/operation-not-allowed') return 'مزود تسجيل الدخول عبر Google غير مفعل حالياً في إعدادات Firebase.';
     if (code === 'auth/network-request-failed') return 'تعذر الاتصال بخوادم المصادقة. تحقق من اتصال الإنترنت.';
     return msg || fallback;
   };
@@ -1669,25 +1688,20 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const handleGoogleLogin = async () => {
     setAuthLoading(true);
     setAuthError(null);
-    console.group('[Sovereign Auth Diagnostics] Attempting Google Sign-In via Popup');
-    console.log('Current Window Location:', window.location.href);
-    console.log('Current Hostname:', window.location.hostname);
-    console.log('Firebase App Name:', auth.app?.name || 'default');
+    if (domainVerification.isLegacyVercelDomain && typeof window !== 'undefined') {
+      window.location.replace(domainVerification.canonicalUrl);
+      return;
+    }
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      console.log('GoogleAuthProvider initialized. Calling signInWithPopup...');
-      const result = await signInWithPopup(auth, provider);
-      console.log('Google Sign-In SUCCESS:', result.user?.email, result.user?.displayName);
-      console.groupEnd();
+      const provider = createGoogleAuthProvider();
+      await signInWithPopup(auth, provider);
     } catch (err: any) {
-      console.error('[Sovereign Auth Diagnostics] Google Sign-In FAILED:', {
+      console.error('[Sovereign Auth] Google Sign-In Error:', {
         code: err?.code,
         message: err?.message,
-        customData: err?.customData,
-        credential: err?.credential,
+        hostname: domainVerification.hostname,
+        projectId: firebaseConfig.projectId,
       });
-      console.groupEnd();
       const specificMsg = formatAuthError(err, err?.message || 'فشل المصادقة عبر Google.');
       setAuthError(`خطأ المصادقة [${err?.code || 'AUTH_ERROR'}]: ${specificMsg}`);
     } finally {
@@ -6275,19 +6289,38 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 </div>
               )}
 
-              <div className="pt-4 border-t border-gray-800 text-center space-y-1.5">
+              <div className="pt-4 border-t border-gray-800 text-center space-y-2.5">
                 <p className="text-xs text-gray-400 font-medium">
                   الوصول مقيد بحسابات Google عبر Firebase Authentication فقط.
                 </p>
-                <p className="text-[11px] text-gray-500">
-                  تم إيقاف وضع الزائر ولا يمكن عرض أي محتوى أو أدوات قبل إتمام المصادقة.
-                </p>
+                <div
+                  dir="ltr"
+                  className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-mono ${
+                    domainVerification.isRecognizedDomain
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                  <span>{domainVerification.hostname} • {firebaseConfig.projectId}</span>
+                </div>
+                {!domainVerification.isRecognizedDomain && (
+                  <div className="pt-1">
+                    <a
+                      href={domainVerification.canonicalUrl}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#D4AF37] hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      الانتقال إلى النطاق الرسمي ({PRIMARY_VERCEL_DOMAIN})
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         ) : (
           <>
-            {!user.emailVerified && !verificationSent && (
+            {!isEmailVerifiedOrGoogle && !verificationSent && (
               <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-3 text-amber-400">
                   <AlertTriangle className="w-5 h-5 shrink-0" />
@@ -9058,7 +9091,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   </div>
                   <div className="pb-2 space-y-1">
                     <h2 className="text-2xl font-bold text-white tracking-tight">{userProfile?.displayName || 'المحقق'}</h2>
-                    <p className="text-xs text-gray-400 font-mono">{user.email}</p>
+                    <p className="text-xs text-gray-400 font-mono">{resolvedUserEmail}</p>
                   </div>
                 </div>
               </div>
@@ -9084,7 +9117,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-1">البريد الإلكتروني (غير قابل للتغيير)</label>
                         <input 
                           type="email" 
-                          value={user.email || ''} 
+                          value={resolvedUserEmail} 
                           disabled
                           className="w-full px-4 py-2.5 bg-gray-900 border border-gray-800 rounded-xl text-sm text-gray-400 cursor-not-allowed"
                         />
@@ -9158,9 +9191,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-gray-500">حالة التحقق:</span>
-                        {user.emailVerified ? (
+                        {isEmailVerifiedOrGoogle ? (
                           <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                            <CheckCircle2 className="w-3 h-3" /> تم التحقق
+                            <CheckCircle2 className="w-3 h-3" /> تم التحقق (Google)
                           </span>
                         ) : (
                           <span className="text-amber-400 font-bold">بانتظار التحقق</span>

@@ -8,13 +8,26 @@ import {
   sendPasswordResetEmail,
   updateProfile,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  browserLocalPersistence,
+  setPersistence
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage, uploadBytesResumable, deleteObject } from 'firebase/storage';
 import defaultFirebaseConfig from '../firebase-applet-config.json';
 
 const CUSTOM_FIREBASE_STORAGE_KEY = 'sovereign_custom_firebase_config';
+
+export const PRIMARY_VERCEL_DOMAIN = 'sovqs.vercel.app';
+export const LEGACY_VERCEL_DOMAINS = [
+  'sovsoc.vercel.app',
+  'sovereign-soc-platform-9wwm.vercel.app',
+] as const;
+
+const DEPRECATED_FIREBASE_PROJECT_IDS = new Set<string>([
+  'ai-studio-applet-webapp-6aff0',
+  'remixed-project-id',
+]);
 
 export interface SovereignFirebaseConfig {
   projectId: string;
@@ -26,19 +39,39 @@ export interface SovereignFirebaseConfig {
   messagingSenderId?: string;
 }
 
+export interface DomainVerificationStatus {
+  hostname: string;
+  isPrimaryVercelDomain: boolean;
+  isLegacyVercelDomain: boolean;
+  isAiStudioRuntime: boolean;
+  isLocalhost: boolean;
+  isRecognizedDomain: boolean;
+  canonicalUrl: string;
+  expectedAuthDomain: string;
+}
+
 function loadActiveFirebaseConfig(): { config: SovereignFirebaseConfig; isCustom: boolean } {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = window.localStorage.getItem(CUSTOM_FIREBASE_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.apiKey && parsed.authDomain && parsed.projectId && parsed.appId) {
+        if (
+          parsed &&
+          parsed.apiKey &&
+          parsed.authDomain &&
+          parsed.projectId &&
+          parsed.appId &&
+          !DEPRECATED_FIREBASE_PROJECT_IDS.has(String(parsed.projectId).trim())
+        ) {
           return { config: parsed as SovereignFirebaseConfig, isCustom: true };
         }
+        // Automatically discard stale or deprecated Firebase config overrides
+        window.localStorage.removeItem(CUSTOM_FIREBASE_STORAGE_KEY);
       }
     }
   } catch {
-    // Fallback cleanly to default config
+    // Fallback cleanly to active provisioned config
   }
   return { config: defaultFirebaseConfig as SovereignFirebaseConfig, isCustom: false };
 }
@@ -99,7 +132,47 @@ export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestore
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
 export const auth = getAuth(app);
+auth.languageCode = 'ar';
+if (typeof window !== 'undefined') {
+  void setPersistence(auth, browserLocalPersistence).catch(() => {});
+}
 export const storage = getStorage(app);
+
+export function createGoogleAuthProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.addScope('email');
+  provider.addScope('profile');
+  provider.setCustomParameters({
+    prompt: 'select_account',
+  });
+  return provider;
+}
+
+export function verifyAppDomainForGoogleAuth(): DomainVerificationStatus {
+  const hostname =
+    typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : PRIMARY_VERCEL_DOMAIN;
+  const isPrimaryVercelDomain = hostname === PRIMARY_VERCEL_DOMAIN;
+  const isLegacyVercelDomain = (LEGACY_VERCEL_DOMAINS as readonly string[]).includes(hostname);
+  const isAiStudioRuntime =
+    hostname.endsWith('.run.app') ||
+    hostname.endsWith('.scf.usercontent.goog') ||
+    hostname.endsWith('.googleusercontent.com');
+  const isLocalhost =
+    hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  const isRecognizedDomain =
+    isPrimaryVercelDomain || isAiStudioRuntime || isLocalhost;
+
+  return {
+    hostname,
+    isPrimaryVercelDomain,
+    isLegacyVercelDomain,
+    isAiStudioRuntime,
+    isLocalhost,
+    isRecognizedDomain,
+    canonicalUrl: `https://${PRIMARY_VERCEL_DOMAIN}/`,
+    expectedAuthDomain: firebaseConfig.authDomain,
+  };
+}
 
 export { 
   firebaseConfig,

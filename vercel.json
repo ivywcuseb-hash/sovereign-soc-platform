@@ -46,7 +46,18 @@
           "value": "sovereign-soc-platform-9wwm.vercel.app"
         }
       ],
-      "destination": "https://sovsoc.vercel.app/$1",
+      "destination": "https://sovqs.vercel.app/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "sovsoc.vercel.app"
+        }
+      ],
+      "destination": "https://sovqs.vercel.app/$1",
       "permanent": true
     }
   ],
