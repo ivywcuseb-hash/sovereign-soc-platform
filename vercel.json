@@ -71,7 +71,7 @@
       "destination": "https://herculian-metric-0vc14.firebaseapp.com/__/firebase/$1"
     },
     {
-      "source": "/((?!__/|assets/|manifest\\.json|sw\\.js|workbox-.*|sql-wasm\\.wasm|.*\\.(?:png|jpg|jpeg|svg|ico|wasm|js|css|json|txt|xml)$).*)",
+      "source": "/((?!api/|__/|assets/|manifest\\.json|sw\\.js|workbox-.*|sql-wasm\\.wasm|.*\\.(?:png|jpg|jpeg|svg|ico|wasm|js|css|json|txt|xml)$).*)",
       "destination": "/index.html"
     }
   ]

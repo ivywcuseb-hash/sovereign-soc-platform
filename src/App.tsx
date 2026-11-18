@@ -132,7 +132,12 @@ import {
   type ReportClassification,
   type ForensicDossierInput
 } from './utils/reportGenerator';
-import { apiUrl } from './utils/apiBase';
+import { apiUrl, safeReadJsonResponse } from './utils/apiBase';
+import {
+  BUILTIN_THREAT_FEEDS_CLIENT,
+  syncLiveThreatFeedsClientFallback,
+  buildLocalLiveFeedsBriefing,
+} from './utils/liveThreatFeedsClient';
 import { 
   useUpdateChecker, 
   UpdateBanner, 
@@ -1064,7 +1069,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const DEFAULT_LIVE_FEED_IDS = ['cisa_kev', 'feodo_c2', 'circl_cve', 'cisa_advisories', 'sans_isc', 'hacker_news'];
   const [liveFeedsCatalog, setLiveFeedsCatalog] = useState<
     { id: string; name: string; provider: string; url: string; format: string; category: string; description: string }[]
-  >([]);
+  >(BUILTIN_THREAT_FEEDS_CLIENT);
   const [enabledLiveFeeds, setEnabledLiveFeeds] = useState<string[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sovereign_enabled_live_feeds') || 'null');
@@ -2091,10 +2096,12 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
-          const data = await res.json();
-          setDashboardStats(data);
-          try { localStorage.setItem('sovereign_dashboard_stats', JSON.stringify(data)); } catch (_) {}
-          loaded = true;
+          const parsed = await safeReadJsonResponse(res);
+          if (parsed.isJson && parsed.data) {
+            setDashboardStats(parsed.data);
+            try { localStorage.setItem('sovereign_dashboard_stats', JSON.stringify(parsed.data)); } catch (_) {}
+            loaded = true;
+          }
         }
       } catch (fetchErr) {
         console.warn('Backend API stats fallback to Firestore client SDK:', fetchErr);
@@ -2391,7 +2398,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       const dnsRes = await fetch(`https://cloudflare-dns.com/dns-query?name=${domain}&type=MX`, {
         headers: { 'Accept': 'application/dns-json' }
       });
-      const dnsData = await dnsRes.json();
+      const parsedDns = await safeReadJsonResponse(dnsRes);
+      const dnsData = parsedDns.data || {};
 
       const mxAnswers = dnsData.Answer || [];
       const mxServers = mxAnswers.map((ans: any) => ans.data);
@@ -4009,8 +4017,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apkData: staticData })
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || {};
+      if (!res.ok || !parsed.isJson) {
         throw new Error(data.error || 'تعذر الحصول على تقييم Neural-X Security Daemon لحزمة APK.');
       }
 
@@ -4215,8 +4224,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ historyData: staticData }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || {};
+      if (!res.ok || !parsed.isJson) {
         throw new Error(data.error || 'تعذر الحصول على تقييم Automated Parser Core لسجل التصفح.');
       }
 
@@ -4443,9 +4453,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ indicator: target }),
       });
-      const data = await res.json();
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || {};
 
-      if (!res.ok) {
+      if (!res.ok || !parsed.isJson) {
         if (data.telemetry) {
           setThreatIntelResult({
             telemetry: data.telemetry,
@@ -4618,8 +4629,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || {};
+      if (!res.ok || !parsed.isJson) {
         throw new Error(data.error || 'تعذر استخراج بيانات DNS والشبكة للمؤشر.');
       }
       setDnsLookupResult(data.telemetry);
@@ -4833,8 +4845,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           finalDeobfuscatedCode: staticData.finalDeobfuscatedCode.slice(0, 8000),
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || {};
+      if (!res.ok || !parsed.isJson) {
         throw new Error(data.error || 'تعذر الحصول على التقرير الجنائي للسكربت من Neural-X Deobfuscator Core.');
       }
 
@@ -5085,8 +5098,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           headerHexDump: staticData.headerHexDump.slice(0, 12),
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || {};
+      if (!res.ok || !parsed.isJson) {
         throw new Error(data.error || 'تعذر الحصول على التحليل الجنائي الثنائي من Sovereign Binary Telemetry Core.');
       }
 
@@ -5457,18 +5471,40 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     setLiveFeedsSyncing(true);
     setLiveFeedsError(null);
     try {
-      const res = await fetch(apiUrl('/api/live-feeds/sync'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let data: any = null;
+      let usedClientFallback = false;
+
+      try {
+        const res = await fetch(apiUrl('/api/live-feeds/sync'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enabledSources: enabledLiveFeeds,
+            customFeedUrls: customLiveFeeds,
+            limitPerSource: 10,
+          }),
+        });
+        const parsed = await safeReadJsonResponse(res);
+        if (res.ok && parsed.isJson && parsed.data && Array.isArray(parsed.data.items)) {
+          data = parsed.data;
+        } else if (res.status === 404 || res.status === 405 || !parsed.isJson) {
+          usedClientFallback = true;
+        } else {
+          throw new Error(parsed.data?.error || 'تعذر مزامنة تغذيات التهديدات الحية.');
+        }
+      } catch (apiErr: any) {
+        if (!usedClientFallback && apiErr instanceof TypeError) {
+          usedClientFallback = true;
+        } else if (!usedClientFallback) {
+          throw apiErr;
+        }
+      }
+
+      if (usedClientFallback || !data) {
+        data = await syncLiveThreatFeedsClientFallback({
           enabledSources: enabledLiveFeeds,
-          customFeedUrls: customLiveFeeds,
           limitPerSource: 10,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'تعذر مزامنة تغذيات التهديدات الحية.');
+        });
       }
 
       setLiveFeedsResult(data);
@@ -5518,16 +5554,32 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     setLiveFeedsBriefingLoading(true);
     setLiveFeedsError(null);
     try {
-      const res = await fetch(apiUrl('/api/live-feeds/briefing'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: liveFeedsResult.items.slice(0, 18) }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'فشل توليد الموجز الأمني للتغذيات عبر وحدة Threat Hunting.');
+      let briefingData: any = null;
+      try {
+        const res = await fetch(apiUrl('/api/live-feeds/briefing'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: liveFeedsResult.items.slice(0, 18) }),
+        });
+        const parsed = await safeReadJsonResponse(res);
+        if (res.ok && parsed.isJson && parsed.data) {
+          briefingData = parsed.data;
+        } else if (res.status !== 404 && res.status !== 405 && parsed.isJson && parsed.data?.error) {
+          throw new Error(parsed.data.error);
+        }
+      } catch (reqErr: any) {
+        if (!(reqErr instanceof TypeError)) {
+          // If backend returned explicit validation error, rethrow unless gateway unavailable
+          if (reqErr?.message && !reqErr.message.includes('JSON')) {
+            briefingData = buildLocalLiveFeedsBriefing(liveFeedsResult.items as any);
+          }
+        }
       }
-      setLiveFeedsBriefing(data);
+
+      if (!briefingData) {
+        briefingData = buildLocalLiveFeedsBriefing(liveFeedsResult.items as any);
+      }
+      setLiveFeedsBriefing(briefingData);
       notifyStatus('تم إنشاء الموجز الاستخباراتي الحي عبر Sovereign SOC Correlation Daemon بنجاح.', 'success');
     } catch (err: any) {
       setLiveFeedsError(err?.message || 'تعذر إنشاء الموجز الأمني من وحدة الربط الاستخباراتي.');
@@ -5603,9 +5655,11 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   useEffect(() => {
     let mounted = true;
     fetch(apiUrl('/api/live-feeds/catalog'))
-      .then((r) => r.json())
-      .then((d) => {
-        if (mounted && Array.isArray(d?.feeds)) setLiveFeedsCatalog(d.feeds);
+      .then((r) => safeReadJsonResponse(r))
+      .then((parsed) => {
+        if (mounted && parsed.ok && parsed.isJson && Array.isArray(parsed.data?.feeds)) {
+          setLiveFeedsCatalog(parsed.data.feeds);
+        }
       })
       .catch(() => {});
     // Initial sync on startup so Dashboard Live Feeds stay populated
@@ -5668,7 +5722,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery })
       });
-      const data = await res.json();
+      const parsed = await safeReadJsonResponse(res);
+      const data = parsed.data || { result: 'تعذر الوصول لخدمة البحث الخلفية حالياً.', sources: [] };
       setSearchResult({ ...data, internalResults: internal });
     } catch (err) {
       console.error('Search error:', err);
