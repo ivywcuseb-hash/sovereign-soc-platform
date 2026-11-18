@@ -138,6 +138,10 @@ import {
   syncLiveThreatFeedsClientFallback,
   buildLocalLiveFeedsBriefing,
 } from './utils/liveThreatFeedsClient';
+import {
+  gatherOsintClientFallback,
+  buildThreatIntelReportClient,
+} from './utils/threatIntelClient';
 import { 
   useUpdateChecker, 
   UpdateBanner, 
@@ -2443,19 +2447,41 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         sha256: 'N/A'
       });
     } catch (err) {
-      console.error('DNS MX Lookup error:', err);
+      console.warn('Primary Cloudflare DNS MX Lookup error, trying Google DoH:', err);
       const parts = targetEmail.split('@');
       const domain = parts[1].toLowerCase();
-      const isDisposable = ['mailinator.com', 'yopmail.com', 'tempmail.com'].includes(domain);
+      const disposableList = ['mailinator.com', 'yopmail.com', '10minutemail.com', 'tempmail.com', 'guerrillamail.com', 'sharklasers.com', 'trashmail.com', 'dispostable.com', 'temp-mail.org', 'fakeinbox.com'];
+      const isDisposable = disposableList.includes(domain);
+
+      let mxServers: string[] = [];
+      let mxRecordsFound = false;
+      try {
+        const googleDnsRes = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=MX`);
+        const googleParsed = await safeReadJsonResponse(googleDnsRes);
+        const answers = Array.isArray(googleParsed.data?.Answer) ? googleParsed.data.Answer : [];
+        mxServers = answers.map((a: any) => String(a.data)).filter(Boolean);
+        mxRecordsFound = mxServers.length > 0;
+      } catch {
+        mxServers = [];
+        mxRecordsFound = false;
+      }
 
       setEmailCheckResult({
         email: targetEmail,
         domain,
         isDisposable,
-        mxRecordsFound: true,
-        mxServers: ['mx.local-fallback.net'],
-        domainInfo: `نطاق بريدي (${domain}) - تم الفحص محلياً بنجاح.`,
-        breachStatus: isDisposable ? 'بريد مؤقت غير موثوق.' : 'نطاق رسمي موثوق - لم يتم رصد تسريب.'
+        mxRecordsFound,
+        mxServers,
+        domainInfo: isDisposable
+          ? 'تحذير: هذا النطاق تابع لخدمة بريد مؤقت/وهمي (Disposable Temp-mail)، ويُعَدُّ غير موثوق.'
+          : mxRecordsFound
+          ? `نطاق رسمي موثوق (${domain}) - تم التحقق عبر Google DNS-over-HTTPS من وجود ${mxServers.length} خوادم بريدية نشطة.`
+          : `تعذر العثور على سجلات MX نشطة للنطاق (${domain}) أو تعذر الاتصال بخوادم DNS الحية.`,
+        breachStatus: isDisposable
+          ? 'بريد وهمي غير موثوق.'
+          : mxRecordsFound
+          ? 'نطاق رسمي نشط في DNS الحي.'
+          : 'لا توجد سجلات MX مؤكدة في الاستعلام الحي.',
       });
     } finally {
       setEmailLoading(false);
@@ -4012,15 +4038,63 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     setApkError(null);
     setApkAnalyzing(true);
     try {
-      const res = await fetch(apiUrl('/api/analyze-apk'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apkData: staticData })
-      });
-      const parsed = await safeReadJsonResponse(res);
-      const data = parsed.data || {};
-      if (!res.ok || !parsed.isJson) {
-        throw new Error(data.error || 'تعذر الحصول على تقييم Neural-X Security Daemon لحزمة APK.');
+      let data: any = null;
+      let useLocalApkEval = false;
+      try {
+        const res = await fetch(apiUrl('/api/analyze-apk'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apkData: staticData })
+        });
+        const parsed = await safeReadJsonResponse(res);
+        if (res.ok && parsed.isJson && parsed.data) {
+          data = parsed.data;
+        } else if (res.status === 404 || res.status === 405 || !parsed.isJson) {
+          useLocalApkEval = true;
+        } else {
+          throw new Error(parsed.data?.error || 'تعذر الحصول على تقييم Neural-X Security Daemon لحزمة APK.');
+        }
+      } catch (reqErr: any) {
+        if (!useLocalApkEval && reqErr instanceof TypeError) {
+          useLocalApkEval = true;
+        } else if (!useLocalApkEval) {
+          throw reqErr;
+        }
+      }
+
+      if (useLocalApkEval || !data) {
+        const critCount = staticData.criticalPermissionsCount || 0;
+        const sensCount = staticData.sensitivePermissionsCount || 0;
+        const suspTriggers = staticData.suspiciousTriggers || [];
+        const insecureUrls = (staticData.urls || []).filter((u) => u.riskTag === 'insecure_http' || u.riskTag === 'suspicious');
+        const computedScore = Math.min(
+          98,
+          Math.max(8, critCount * 16 + sensCount * 4 + suspTriggers.length * 10 + insecureUrls.length * 4)
+        );
+        const isSpyware = critCount >= 2 || computedScore >= 65 || suspTriggers.length >= 2;
+        const riskLevel = computedScore >= 80 ? 'حرج' : computedScore >= 60 ? 'مرتفع' : computedScore >= 35 ? 'متوسط' : 'منخفض';
+        data = {
+          classification: isSpyware ? 'حزمة تجسس/تهديد محتمل (Spyware / Riskware)' : computedScore >= 35 ? 'حزمة تتطلب مراجعة أمنية' : 'حزمة تطبيق قياسية',
+          isSpyware,
+          riskLevel,
+          threatScore: computedScore,
+          executiveSummary: `تم فحص الحزمة الحقيقية (${staticData.fileName}) عبر فك الضغط الفعلي بـ JSZip واستخراج ${staticData.totalEntries} ملفاً و${staticData.permissions.length} إذناً (${critCount} حرج، ${sensCount} حساس) و${staticData.endpointUrlsCount} رابطاً خارجياً.`,
+          spywareIndicators: [
+            ...suspTriggers,
+            ...staticData.permissions.filter((p) => p.severity === 'critical').map((p) => `إذن حرج: ${p.shortName} — ${p.description}`),
+          ].slice(0, 10),
+          networkAssessment: `تم رصد ${staticData.endpointUrlsCount} نقطة اتصال خارجية و${staticData.ips.length} عنوان IP مضمن داخل ملفات الحزمة المفكوكة.`,
+          recommendations: isSpyware
+            ? ['عدم تثبيت الحزمة على الأجهزة الحساسة ومراجعة الأذونات الحرجة.', 'فحص النطاقات وعناوين IP المستخرجة في قسم الاستخبارات (OSINT).']
+            : ['الاحتفاظ بالبصمات التشفيرية (SHA-256) ومقارنة الأذونات مع الغرض الفعلي للتطبيق.'],
+          permissionsAssessment: staticData.permissions.slice(0, 15).map((p) => ({
+            permission: p.shortName,
+            severity: p.severity === 'critical' ? 'حرج' : p.severity === 'high' ? 'مرتفع' : p.severity === 'medium' ? 'متوسط' : 'منخفض',
+            reason: p.description,
+          })),
+          analyzedAt: new Date().toISOString(),
+          modelUsed: 'Sovereign Client JSZip & AXML Static Core v2.5',
+        };
       }
 
       setApkAiReport(data);
@@ -4448,25 +4522,43 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     setThreatIntelResult(null);
 
     try {
-      const res = await fetch(apiUrl('/api/threat-intel'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ indicator: target }),
-      });
-      const parsed = await safeReadJsonResponse(res);
-      const data = parsed.data || {};
+      let data: any = null;
+      let useClientOsint = false;
 
-      if (!res.ok || !parsed.isJson) {
-        if (data.telemetry) {
-          setThreatIntelResult({
-            telemetry: data.telemetry,
-            intelligence: null,
-            sources: [],
-            analyzedAt: new Date().toISOString(),
-            modelUsed: 'Threat Hunting OSINT Daemon v3.5',
-          });
+      try {
+        const res = await fetch(apiUrl('/api/threat-intel'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ indicator: target }),
+        });
+        const parsed = await safeReadJsonResponse(res);
+        if (res.ok && parsed.isJson && parsed.data?.telemetry) {
+          data = parsed.data;
+        } else if (res.status === 404 || res.status === 405 || !parsed.isJson) {
+          useClientOsint = true;
+        } else {
+          if (parsed.data?.telemetry) {
+            setThreatIntelResult({
+              telemetry: parsed.data.telemetry,
+              intelligence: null,
+              sources: [],
+              analyzedAt: new Date().toISOString(),
+              modelUsed: 'Threat Hunting OSINT Daemon v3.5',
+            });
+          }
+          throw new Error(parsed.data?.error || 'تعذر إتمام الفحص الاستخباراتي للمؤشر.');
         }
-        throw new Error(data.error || 'تعذر إتمام الفحص الاستخباراتي للمؤشر.');
+      } catch (reqErr: any) {
+        if (!useClientOsint && reqErr instanceof TypeError) {
+          useClientOsint = true;
+        } else if (!useClientOsint) {
+          throw reqErr;
+        }
+      }
+
+      if (useClientOsint || !data) {
+        const liveTelemetry = await gatherOsintClientFallback(target);
+        data = buildThreatIntelReportClient(liveTelemetry);
       }
 
       setThreatIntelResult(data);
@@ -4624,16 +4716,35 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     setDnsLookupError(null);
 
     try {
-      const res = await fetch(apiUrl('/api/dns-ip-lookup'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target }),
-      });
-      const parsed = await safeReadJsonResponse(res);
-      const data = parsed.data || {};
-      if (!res.ok || !parsed.isJson) {
-        throw new Error(data.error || 'تعذر استخراج بيانات DNS والشبكة للمؤشر.');
+      let data: any = null;
+      let useClientDns = false;
+      try {
+        const res = await fetch(apiUrl('/api/dns-ip-lookup'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target }),
+        });
+        const parsed = await safeReadJsonResponse(res);
+        if (res.ok && parsed.isJson && parsed.data?.telemetry) {
+          data = parsed.data;
+        } else if (res.status === 404 || res.status === 405 || !parsed.isJson) {
+          useClientDns = true;
+        } else {
+          throw new Error(parsed.data?.error || 'تعذر استخراج بيانات DNS والشبكة للمؤشر.');
+        }
+      } catch (reqErr: any) {
+        if (!useClientDns && reqErr instanceof TypeError) {
+          useClientDns = true;
+        } else if (!useClientDns) {
+          throw reqErr;
+        }
       }
+
+      if (useClientDns || !data) {
+        const liveTelemetry = await gatherOsintClientFallback(target);
+        data = { success: true, telemetry: liveTelemetry };
+      }
+
       setDnsLookupResult(data.telemetry);
       
       const telemetry = data.telemetry;
