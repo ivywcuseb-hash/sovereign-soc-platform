@@ -69,7 +69,9 @@ import {
   PanelRightOpen,
   Menu,
   Columns,
-  Dices
+  Dices,
+  KeyRound,
+  FolderArchive
 } from 'lucide-react';
 import {
   LayoutCustomizerDrawer,
@@ -159,6 +161,12 @@ import {
 import {
   MasterPasswordGate
 } from './components/MasterPasswordGate';
+import {
+  BreachLookupLab,
+  ArchiveExtractorLab,
+  SslInspectorLab,
+  IpGeoThreatMapperLab,
+} from './components/SecurityToolkitLabs';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
@@ -419,7 +427,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
   const [showPinChangeModal, setShowPinChangeModal] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -5958,6 +5966,22 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 التغذيات الحية
                 {liveFeedsAutoSync && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
               </button>
+              <button onClick={() => handleSelectTab('breach_lookup')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('breach_lookup') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <KeyRound className="w-4 h-4" />
+                فحص التسريبات
+              </button>
+              <button onClick={() => handleSelectTab('archive_extractor')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('archive_extractor') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <FolderArchive className="w-4 h-4" />
+                تحليل الأرشيف
+              </button>
+              <button onClick={() => handleSelectTab('ssl_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ssl_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Lock className="w-4 h-4" />
+                شهادات SSL/TLS
+              </button>
+              <button onClick={() => handleSelectTab('ip_mapper')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ip_mapper') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <MapPin className="w-4 h-4" />
+                خريطة الـ IP
+              </button>
               <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
                 <FileText className="w-4 h-4" />
                 التقارير الموثقة
@@ -6250,6 +6274,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             <button onClick={() => handleSelectTab('deobfuscator')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('deobfuscator') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>فك تشويه السكربتات</button>
             <button onClick={() => handleSelectTab('binary_lab')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('binary_lab') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تحليل الباينري PE/ELF</button>
             <button onClick={() => handleSelectTab('live_feeds')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('live_feeds') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التغذيات الحية</button>
+            <button onClick={() => handleSelectTab('breach_lookup')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('breach_lookup') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>فحص التسريبات</button>
+            <button onClick={() => handleSelectTab('archive_extractor')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('archive_extractor') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تحليل الأرشيف</button>
+            <button onClick={() => handleSelectTab('ssl_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ssl_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>شهادات SSL</button>
+            <button onClick={() => handleSelectTab('ip_mapper')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ip_mapper') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>خريطة الـ IP</button>
             <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
             <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
           </div>
@@ -14084,6 +14112,82 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
               )}
             </div>
           </div>
+        )}
+
+        {isTabVisible('breach_lookup') && (
+          <BreachLookupLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('archive_extractor') && (
+          <ArchiveExtractorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('ssl_inspector') && (
+          <SslInspectorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('ip_mapper') && (
+          <IpGeoThreatMapperLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
         )}
 
         {isTabVisible('samples') && (

@@ -13,6 +13,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 import { gatherLiveOsintTelemetry, evaluateTelemetryHeuristically } from './src/utils/threatIntelServer.ts';
 import { BUILTIN_THREAT_FEEDS, syncLiveThreatFeeds } from './src/utils/liveThreatFeedsServer.ts';
+import breachLookupHandler from './api/breach-lookup.ts';
+import sslInspectHandler from './api/ssl-inspect.ts';
+import ipGeoThreatHandler from './api/ip-geo-threat.ts';
 import {
   type AuthedRequest,
   securityMonitor,
@@ -1492,6 +1495,11 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
       });
     }
   });
+
+  // New Real-Data Security Toolkit Endpoints
+  app.post('/api/breach-lookup', probeRateLimit, optionalVerifiedAuth, (req, res) => breachLookupHandler(req, res));
+  app.post('/api/ssl-inspect', probeRateLimit, optionalVerifiedAuth, (req, res) => sslInspectHandler(req, res));
+  app.post('/api/ip-geo-threat', probeRateLimit, optionalVerifiedAuth, (req, res) => ipGeoThreatHandler(req, res));
 
   // Search API
   app.post('/api/search', aiRateLimit, optionalVerifiedAuth, async (req, res) => {

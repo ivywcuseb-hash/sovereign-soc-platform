@@ -37,6 +37,10 @@ import {
   Dices,
   Shuffle,
   Wand2,
+  KeyRound,
+  FolderArchive,
+  Lock,
+  MapPin,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -66,7 +70,11 @@ export type AppTabId =
   | 'comparison'
   | 'custody'
   | 'parser'
-  | 'reports';
+  | 'reports'
+  | 'breach_lookup'
+  | 'archive_extractor'
+  | 'ssl_inspector'
+  | 'ip_mapper';
 
 export type LayoutStructure =
   | 'top'
@@ -144,6 +152,10 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'email', label: 'تحليل البريد', shortLabel: 'البريد', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
   { id: 'clipboard', label: 'الحافظة', shortLabel: 'الحافظة', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
   { id: 'search', label: 'الاستخبارات (OSINT)', shortLabel: 'OSINT', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
+  { id: 'breach_lookup', label: 'فحص التسريبات (Breach)', shortLabel: 'التسريبات', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'archive_extractor', label: 'تحليل الأرشيف (ZIP)', shortLabel: 'الأرشيف', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'ssl_inspector', label: 'فحص شهادات SSL/TLS', shortLabel: 'SSL/TLS', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'ip_mapper', label: 'خريطة الـ IP والتهديدات', shortLabel: 'خريطة IP', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
 
   { id: 'profile', label: 'الحساب والإعدادات', shortLabel: 'الحساب', group: 'system', groupLabel: 'النظام والهوية' },
 ];
@@ -188,6 +200,14 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <Activity className={className} />;
     case 'reports':
       return <Shield className={className} />;
+    case 'breach_lookup':
+      return <KeyRound className={className} />;
+    case 'archive_extractor':
+      return <FolderArchive className={className} />;
+    case 'ssl_inspector':
+      return <Lock className={className} />;
+    case 'ip_mapper':
+      return <MapPin className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:
