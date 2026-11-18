@@ -6,7 +6,8 @@ import fsp from 'fs/promises';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import JSZip from 'jszip';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, Modality, type LiveServerMessage } from '@google/genai';
+import { WebSocketServer, WebSocket } from 'ws';
 import { initializeApp, cert, getApps, type App as FirebaseApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -19,6 +20,7 @@ import ipGeoThreatHandler from './api/ip-geo-threat.ts';
 import malwareHashHandler from './api/malware-hash.ts';
 import urlTraceHandler from './api/url-trace.ts';
 import socKevEpssHandler from './api/soc-kev-epss.ts';
+import liveVoiceTurnHandler from './api/live-voice-turn.ts';
 import {
   type AuthedRequest,
   securityMonitor,
@@ -421,7 +423,7 @@ async function startServer() {
         zip.file('README-MOBILE-DEPLOY.md', createMobileDeployReadme(SYSTEM_CURRENT_VERSION, 'pwa-dist'));
       } else {
         // Full Source Bundle (clean repo without dist/node_modules/.env so git push & GitHub Actions work cleanly)
-        const dirsToInclude = ['src', 'server', 'public', '.github'];
+        const dirsToInclude = ['src', 'server', 'api', 'public', '.github'];
         for (const dirName of dirsToInclude) {
           const files = await collectDirectoryFiles(path.join(__dirname, dirName), dirName);
           for (const file of files) {
@@ -1507,6 +1509,7 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
   app.post('/api/url-trace', probeRateLimit, optionalVerifiedAuth, (req, res) => urlTraceHandler(req, res));
   app.get('/api/soc-kev-epss', probeRateLimit, optionalVerifiedAuth, (req, res) => socKevEpssHandler(req, res));
   app.post('/api/soc-kev-epss', probeRateLimit, optionalVerifiedAuth, (req, res) => socKevEpssHandler(req, res));
+  app.post('/api/live-voice-turn', aiRateLimit, optionalVerifiedAuth, (req, res) => liveVoiceTurnHandler(req, res));
 
   // Search API
   app.post('/api/search', aiRateLimit, optionalVerifiedAuth, async (req, res) => {
@@ -1573,7 +1576,216 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
     ? (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000)
     : (portArgIndex !== -1 ? parseInt(process.argv[portArgIndex + 1], 10) : 3000);
 
-  app.listen(port, '0.0.0.0', () => console.log(`Server running on http://0.0.0.0:${port}`));
+  const httpServer = app.listen(port, '0.0.0.0', () => console.log(`Server running on http://0.0.0.0:${port}`));
+
+  // Real-Time Bidirectional Gemini Live Voice Gateway (gemini-3.8-live)
+  const wss = new WebSocketServer({ server: httpServer, path: '/api/live-voice' });
+
+  wss.on('error', (wsErr) => {
+    console.error('Live Voice WebSocketServer error:', wsErr);
+  });
+
+  wss.on('connection', (clientWs) => {
+    let liveSession: any = null;
+    let sessionReady = false;
+    let isClosing = false;
+    const pendingMessages: Array<
+      { kind: 'audio'; data: string } | { kind: 'text'; text: string }
+    > = [];
+
+    const sendToClient = (payload: Record<string, any>) => {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify(payload));
+      }
+    };
+
+    const cleanupSession = () => {
+      isClosing = true;
+      sessionReady = false;
+      pendingMessages.length = 0;
+      if (liveSession) {
+        try {
+          liveSession.close();
+        } catch {
+          // ignore close errors
+        }
+        liveSession = null;
+      }
+    };
+
+    const initGeminiLiveSession = async (voiceName: string, forensicContext: string) => {
+      if (liveSession || isClosing) return;
+      const liveKey = process.env.GEMINI_API_KEY;
+      if (!liveKey || liveKey === 'dummy-key') {
+        sendToClient({
+          type: 'error',
+          message: 'مفتاح Gemini API غير مهيأ على الخادم لتشغيل المحادثة الصوتية الحية.',
+        });
+        clientWs.close(1011, 'Missing Gemini API key');
+        return;
+      }
+
+      const safeVoice = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'].includes(voiceName)
+        ? voiceName
+        : 'Zephyr';
+      const safeContext = sanitizeControlChars(forensicContext || '', 2500);
+
+      try {
+        const liveClient = new GoogleGenAI({
+          apiKey: liveKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        });
+
+        const systemInstruction = `أنت المساعد الصوتي الجنائي الفوري لمنصة SOVEREIGN FORENSIC ENGINE.
+تتحدث العربية بطلاقة واحترافية عالية وبنبرة تحليلية هادئة ومباشرة (ويمكنك الرد بالإنجليزية عند مخاطبتك بها).
+قدّم إجابات دقيقة، مركزة، وواضحة ومناسبة للحوار الصوتي المباشر في مجالات التحقيق الجنائي الرقمي، أمن البرمجيات، تحليل التهديدات، ثغرات CVE، وفحص الأدلة.
+${safeContext ? `سياق المنصة الحي الحالي:\n${safeContext}` : ''}`;
+
+        liveSession = await liveClient.live.connect({
+          model: 'gemini-3.8-live',
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: safeVoice },
+              },
+            },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            systemInstruction,
+          },
+          callbacks: {
+            onopen: () => {
+              sessionReady = true;
+              sendToClient({ type: 'ready', voiceName: safeVoice, model: 'gemini-3.8-live' });
+              while (pendingMessages.length > 0 && liveSession && !isClosing) {
+                const queued = pendingMessages.shift()!;
+                if (queued.kind === 'audio') {
+                  liveSession.sendRealtimeInput({
+                    audio: { data: queued.data, mimeType: 'audio/pcm;rate=16000' },
+                  });
+                } else {
+                  liveSession.sendRealtimeInput({ text: queued.text });
+                }
+              }
+            },
+            onmessage: (message: LiveServerMessage) => {
+              const sc = message.serverContent;
+              if (!sc) return;
+
+              if (sc.interrupted) {
+                sendToClient({ type: 'interrupted' });
+              }
+
+              const inputText = sc.inputTranscription?.text;
+              if (inputText) {
+                sendToClient({ type: 'input_transcript', text: inputText });
+              }
+
+              const outputText = sc.outputTranscription?.text;
+              if (outputText) {
+                sendToClient({ type: 'output_transcript', text: outputText });
+              }
+
+              const parts = sc.modelTurn?.parts || [];
+              for (const part of parts) {
+                if (part.inlineData?.data) {
+                  sendToClient({
+                    type: 'audio',
+                    data: part.inlineData.data,
+                    mimeType: part.inlineData.mimeType || 'audio/pcm;rate=24000',
+                  });
+                }
+              }
+
+              if (sc.turnComplete) {
+                sendToClient({ type: 'turn_complete' });
+              }
+            },
+            onerror: (err: any) => {
+              sendToClient({
+                type: 'error',
+                message: sanitizeCoreError(err, 'حدث خطأ في اتصال الجلسة الصوتية الحية مع Gemini.'),
+              });
+            },
+            onclose: () => {
+              sessionReady = false;
+              liveSession = null;
+              if (!isClosing && clientWs.readyState === WebSocket.OPEN) {
+                sendToClient({ type: 'closed' });
+                clientWs.close(1000, 'Gemini Live session ended');
+              }
+            },
+          },
+        });
+      } catch (err: any) {
+        sendToClient({
+          type: 'error',
+          message: sanitizeCoreError(err, 'تعذر تأسيس جلسة الصوت الحية عبر gemini-3.8-live.'),
+        });
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.close(1011, 'Failed to establish Gemini Live session');
+        }
+      }
+    };
+
+    clientWs.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (!msg || typeof msg.type !== 'string') return;
+
+        if (msg.type === 'start') {
+          void initGeminiLiveSession(
+            typeof msg.voiceName === 'string' ? msg.voiceName : 'Zephyr',
+            typeof msg.forensicContext === 'string' ? msg.forensicContext : ''
+          );
+          return;
+        }
+
+        if (msg.type === 'audio' && typeof msg.data === 'string' && msg.data.length > 0) {
+          if (sessionReady && liveSession) {
+            liveSession.sendRealtimeInput({
+              audio: { data: msg.data, mimeType: 'audio/pcm;rate=16000' },
+            });
+          } else if (pendingMessages.length < 40) {
+            pendingMessages.push({ kind: 'audio', data: msg.data });
+          }
+          return;
+        }
+
+        if (msg.type === 'text' && typeof msg.text === 'string' && msg.text.trim()) {
+          const cleanText = sanitizeControlChars(msg.text.trim(), 2000);
+          if (sessionReady && liveSession) {
+            liveSession.sendRealtimeInput({ text: cleanText });
+          } else if (pendingMessages.length < 40) {
+            pendingMessages.push({ kind: 'text', text: cleanText });
+          }
+          return;
+        }
+
+        if (msg.type === 'stop') {
+          cleanupSession();
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.close(1000, 'Stopped by client');
+          }
+        }
+      } catch {
+        // Ignore malformed client WS frame
+      }
+    });
+
+    clientWs.on('close', () => {
+      cleanupSession();
+    });
+
+    clientWs.on('error', () => {
+      cleanupSession();
+    });
+  });
 }
 
 startServer().catch((err) => {

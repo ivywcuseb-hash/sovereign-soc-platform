@@ -547,7 +547,7 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(), payment=(), usb=()'
+    'camera=(), microphone=(self), geolocation=(), payment=(), usb=()'
   );
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
 
@@ -570,7 +570,7 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https:",
-        "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://dns.google https://rdap.org https://ipwho.is",
+        "connect-src 'self' ws: wss: https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://dns.google https://rdap.org https://ipwho.is",
         "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
         "worker-src 'self' blob:",
         "object-src 'none'",

@@ -48,6 +48,7 @@ import {
   Radar,
   ShieldAlert,
   PieChart,
+  AudioLines,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -88,7 +89,8 @@ export type AppTabId =
   | 'steg_inspector'
   | 'cyber_telemetry'
   | 'vuln_kev_dashboard'
-  | 'asset_os_dashboard';
+  | 'asset_os_dashboard'
+  | 'live_voice';
 
 export type LayoutStructure =
   | 'top'
@@ -149,6 +151,7 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'cyber_telemetry', label: 'مراقبة تدفق الشبكة (SOC)', shortLabel: 'تدفق الشبكة', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'vuln_kev_dashboard', label: 'إدارة الثغرات (KEV & EPSS)', shortLabel: 'ثغرات KEV', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'asset_os_dashboard', label: 'الأصول وأنظمة التشغيل', shortLabel: 'توزيع الأصول', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'live_voice', label: 'المحادثة الصوتية الحية', shortLabel: 'الصوت الحي', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'live_feeds', label: 'التغذيات الحية', shortLabel: 'التغذيات', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'audit', label: 'سجل العمليات', shortLabel: 'السجل', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'reports', label: 'التقارير الموثقة', shortLabel: 'التقارير', group: 'command', groupLabel: 'القيادة والمراقبة' },
@@ -243,6 +246,8 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <ShieldAlert className={className} />;
     case 'asset_os_dashboard':
       return <PieChart className={className} />;
+    case 'live_voice':
+      return <AudioLines className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:
