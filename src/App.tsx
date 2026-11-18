@@ -14390,7 +14390,97 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {isTabVisible('live_voice') && (
           <LiveVoiceAssistantLab
-            forensicSummaryContext={`إجمالي سجلات الفحص: ${auditLogs.length} | الأدلة المحفوظة: ${evidenceList.length} | التنبيهات الحرجة/المرتفعة: ${auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length} | عناصر التغذية الحية: ${liveFeedsResult?.items?.length || 0}`}
+            forensicSummaryContext={`المستخدم: ${userProfile?.displayName || user?.displayName || user?.email || 'محلل'} | القضايا: ${investigations.length} | الأدلة المحفوظة: ${evidenceList.length} | سجلات العمليات: ${auditLogs.length} | التنبيهات الحرجة/المرتفعة: ${auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length} | التغذيات الحية: ${liveFeedsResult?.items?.length || 0} | آخر دليل: ${evidenceList[0]?.fileName || 'لا يوجد'}`}
+            siteDataSnapshot={{
+              userName: userProfile?.displayName || user?.displayName || undefined,
+              userEmail: user?.email || undefined,
+              userRole: userProfile?.role || 'analyst',
+              activeTab,
+              counts: {
+                investigations: investigations.length,
+                evidence: evidenceList.length,
+                auditLogs: auditLogs.length,
+                custody: custodyHistory.length,
+                savedReports: savedReports.length,
+                liveFeeds: liveFeedsResult?.items?.length || 0,
+                telemetry: telemetryLogs.length,
+                criticalAlerts:
+                  auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length +
+                  (liveFeedsResult?.items?.filter((f) => f.severity === 'critical' || f.severity === 'high').length || 0),
+              },
+              investigations: investigations.slice(0, 8).map((inv) => ({
+                title: inv.title,
+                caseNumber: inv.caseNumber,
+                status: inv.status,
+                createdAt: inv.createdAt,
+              })),
+              evidence: evidenceList.slice(0, 10).map((ev) => ({
+                fileName: ev.fileName,
+                fileSize: ev.fileSize,
+                sha256: ev.sha256,
+                riskLevel: ev.analysis?.riskLevel,
+                verdict: ev.analysis?.verdict,
+                authenticityScore: ev.analysis?.authenticityScore,
+                createdAt: ev.createdAt,
+              })),
+              auditLogs: auditLogs.slice(0, 12).map((log) => ({
+                fileName: log.fileName,
+                verdict: log.verdict,
+                risk: log.risk,
+                score: log.score,
+                type: log.type,
+                sha256: log.sha256,
+                timestamp: log.timestamp,
+              })),
+              liveFeeds: (liveFeedsResult?.items || []).slice(0, 12).map((item) => ({
+                title: item.title,
+                sourceName: item.sourceName,
+                category: item.category,
+                indicator: item.indicator,
+                severity: item.severity,
+                severityAr: item.severityAr,
+                cvssScore: item.cvssScore,
+                publishedAt: item.publishedAt,
+              })),
+              telemetry: telemetryLogs.slice(0, 8).map((t) => ({
+                subsystem: t.subsystem,
+                level: t.level,
+                message: t.message,
+                timestamp: t.timestamp,
+              })),
+              currentAnalysis: analysisResult
+                ? {
+                    fileName: analysisResult.fileName,
+                    verdict: analysisResult.verdict,
+                    riskLevel: analysisResult.riskLevel,
+                    authenticityScore: analysisResult.authenticityScore,
+                    sha256: analysisResult.sha256,
+                    detectedFileType: analysisResult.detectedFileType,
+                  }
+                : null,
+              apkResult: apkStaticResult
+                ? {
+                    fileName: apkStaticResult.fileName,
+                    packageName: apkStaticResult.packageName || undefined,
+                    permissionsCount: apkStaticResult.permissions.length,
+                    riskHint: `${apkStaticResult.criticalPermissionsCount} حرج`,
+                  }
+                : null,
+              browserResult: browserStaticResult
+                ? {
+                    fileName: browserStaticResult.fileName,
+                    totalUrlsCount: browserStaticResult.totalUrlsCount,
+                    flaggedUrlsCount: browserStaticResult.flaggedUrlsCount,
+                  }
+                : null,
+              threatIntelResult: threatIntelResult?.intelligence
+                ? {
+                    indicator: threatIntelResult.telemetry?.indicator || threatIntelInput,
+                    verdict: threatIntelResult.intelligence.verdict,
+                    threatScore: threatIntelResult.intelligence.threatScore,
+                  }
+                : null,
+            }}
             onNotify={notifyStatus}
             onRecordAudit={(p) =>
               void saveAuditLog({

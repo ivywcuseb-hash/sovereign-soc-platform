@@ -7,6 +7,7 @@ import {
   PhoneOff,
   Send,
   Volume2,
+  VolumeX,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -14,8 +15,10 @@ import {
   Radio,
   AlertTriangle,
   Wifi,
+  Database,
 } from 'lucide-react';
 import { apiUrl, safeReadJsonResponse } from '../utils/apiBase';
+import type { SiteDataSnapshot } from '../../api/live-voice-turn';
 
 export type LiveVoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
 
@@ -23,14 +26,16 @@ interface VoiceOption {
   id: LiveVoiceName;
   label: string;
   tone: string;
+  ttsPitch: number;
+  ttsRate: number;
 }
 
 const VOICE_OPTIONS: VoiceOption[] = [
-  { id: 'Zephyr', label: 'Zephyr — زيفير', tone: 'واضح ومتزن (قياسي)' },
-  { id: 'Kore', label: 'Kore — كوري', tone: 'هادئ واحترافي' },
-  { id: 'Puck', label: 'Puck — باك', tone: 'حيوي وسريع الاستجابة' },
-  { id: 'Charon', label: 'Charon — شارون', tone: 'عميق وتحليلي (SOC)' },
-  { id: 'Fenrir', label: 'Fenrir — فنرير', tone: 'حازم ومباشر' },
+  { id: 'Zephyr', label: 'Zephyr — زيفير', tone: 'واضح ومتزن (قياسي)', ttsPitch: 1.0, ttsRate: 1.02 },
+  { id: 'Kore', label: 'Kore — كوري', tone: 'هادئ واحترافي', ttsPitch: 1.08, ttsRate: 0.98 },
+  { id: 'Puck', label: 'Puck — باك', tone: 'حيوي وسريع الاستجابة', ttsPitch: 1.1, ttsRate: 1.08 },
+  { id: 'Charon', label: 'Charon — شارون', tone: 'عميق وتحليلي (SOC)', ttsPitch: 0.85, ttsRate: 0.95 },
+  { id: 'Fenrir', label: 'Fenrir — فنرير', tone: 'حازم ومباشر', ttsPitch: 0.9, ttsRate: 1.0 },
 ];
 
 export interface VoiceTranscriptEntry {
@@ -43,6 +48,7 @@ export interface VoiceTranscriptEntry {
 
 interface LiveVoiceAssistantLabProps {
   forensicSummaryContext: string;
+  siteDataSnapshot: SiteDataSnapshot;
   onNotify: (msg: string, type?: 'success' | 'error' | 'warning') => void;
   onRecordAudit: (payload: {
     id: string;
@@ -86,8 +92,25 @@ function decodeBase64Pcm24k(base64: string): Float32Array<ArrayBuffer> {
   return float32;
 }
 
+function buildClientEmergencyRealReply(query: string, snap: SiteDataSnapshot): string {
+  const counts = snap.counts;
+  const ev = snap.evidence?.[0];
+  const feed = snap.liveFeeds?.[0];
+  return [
+    `تم استلام رسالتك: "${query}".`,
+    counts
+      ? `البيانات الفعلية لمنصتك: ${counts.evidence} دليل رقمي، ${counts.auditLogs} عملية فحص، ${counts.investigations} قضية، و${counts.liveFeeds} مؤشر تهديد حي.`
+      : '',
+    ev ? `أحدث دليل: ${ev.fileName} (${ev.verdict || ev.riskLevel || 'محفوظ'}).` : '',
+    feed ? `أحدث تغذية: ${feed.title}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   forensicSummaryContext,
+  siteDataSnapshot,
   onNotify,
   onRecordAudit,
 }) => {
@@ -96,9 +119,11 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   >('idle');
   const [selectedVoice, setSelectedVoice] = useState<LiveVoiceName>('Zephyr');
   const [includeContext, setIncludeContext] = useState(true);
+  const [autoSpeakReplies, setAutoSpeakReplies] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [isModelSpeaking, setIsModelSpeaking] = useState(false);
   const [isPttRecording, setIsPttRecording] = useState(false);
+  const [liveRecognizedInterim, setLiveRecognizedInterim] = useState('');
   const [isFallbackBusy, setIsFallbackBusy] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -108,6 +133,8 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   const wsRef = useRef<WebSocket | null>(null);
   const isStreamingRef = useRef(false);
   const isMutedRef = useRef(false);
+  const autoSpeakRef = useRef(true);
+  const selectedVoiceRef = useRef<LiveVoiceName>('Zephyr');
   const inputCtxRef = useRef<AudioContext | null>(null);
   const outputCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -117,6 +144,11 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const speechRecRef = useRef<any>(null);
+  const recognizedFinalRef = useRef<string>('');
+  const pttMeterFrameRef = useRef<number>(0);
+  const pttAnalyserCtxRef = useRef<AudioContext | null>(null);
+  const speechPumpIntervalRef = useRef<number | null>(null);
 
   // Live visualizer refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -130,8 +162,29 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   }, [isMuted]);
 
   useEffect(() => {
+    autoSpeakRef.current = autoSpeakReplies;
+    if (!autoSpeakReplies && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, [autoSpeakReplies]);
+
+  useEffect(() => {
+    selectedVoiceRef.current = selectedVoice;
+  }, [selectedVoice]);
+
+  useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcripts]);
+
+  // Warm up browser voices (essential on Android Chrome)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      const onVoices = () => window.speechSynthesis.getVoices();
+      window.speechSynthesis.addEventListener?.('voiceschanged', onVoices);
+      return () => window.speechSynthesis.removeEventListener?.('voiceschanged', onVoices);
+    }
+  }, []);
 
   // Waveform animation loop
   useEffect(() => {
@@ -145,7 +198,6 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
           const h = canvas.height;
           ctx.clearRect(0, 0, w, h);
 
-          // Grid lines
           ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -153,14 +205,13 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
           ctx.lineTo(w, h / 2);
           ctx.stroke();
 
-          // Decay levels smoothly
           micLevelRef.current *= 0.88;
           speakerLevelRef.current *= 0.9;
 
           const activeAmp = Math.max(micLevelRef.current, speakerLevelRef.current);
           const isSpeaking = speakerLevelRef.current > micLevelRef.current && speakerLevelRef.current > 0.02;
           const baseAmp =
-            connectionState === 'live' || isPttRecording
+            connectionState === 'live' || isPttRecording || isSpeaking
               ? Math.max(0.06, Math.min(1, activeAmp * 3.2))
               : 0.015;
 
@@ -214,12 +265,91 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [connectionState, isPttRecording]);
 
+  const stopBrowserSpeech = () => {
+    if (speechPumpIntervalRef.current !== null) {
+      window.clearInterval(speechPumpIntervalRef.current);
+      speechPumpIntervalRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  // Unlock speechSynthesis synchronously on user gesture for Android Chrome
+  const primeSpeechSynthesisOnGesture = () => {
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.resume();
+        const prime = new SpeechSynthesisUtterance(' ');
+        prime.volume = 0;
+        window.speechSynthesis.speak(prime);
+      }
+    } catch {
+      // ignore unlock errors
+    }
+  };
+
+  const speakTextViaBrowserTts = (rawText: string) => {
+    if (!autoSpeakRef.current || !rawText?.trim()) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    stopBrowserSpeech();
+    const synth = window.speechSynthesis;
+    const voices = synth.getVoices();
+    const hasArabic = /[\u0600-\u06FF]/.test(rawText);
+    const chosenProfile = VOICE_OPTIONS.find((v) => v.id === selectedVoiceRef.current) || VOICE_OPTIONS[0];
+
+    const preferredVoice = hasArabic
+      ? voices.find((v) => v.lang.toLowerCase().startsWith('ar')) || null
+      : voices.find((v) => v.lang.toLowerCase().startsWith('en')) || null;
+
+    // Split into clean clauses so Android Chrome never drops long utterances
+    const chunks = rawText
+      .replace(/([.!؟?\n؛]+)/g, '$1|')
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (chunks.length === 0) return;
+
+    setIsModelSpeaking(true);
+    speechPumpIntervalRef.current = window.setInterval(() => {
+      speakerLevelRef.current = 0.28 + Math.random() * 0.25;
+      // Android Chrome pause workaround
+      if (synth.paused) synth.resume();
+    }, 120);
+
+    chunks.forEach((chunk, idx) => {
+      const utt = new SpeechSynthesisUtterance(chunk);
+      if (preferredVoice) utt.voice = preferredVoice;
+      utt.lang = preferredVoice?.lang || (hasArabic ? 'ar-SA' : 'en-US');
+      utt.pitch = chosenProfile.ttsPitch;
+      utt.rate = chosenProfile.ttsRate;
+      utt.volume = 1;
+
+      if (idx === chunks.length - 1) {
+        const finish = () => {
+          if (speechPumpIntervalRef.current !== null) {
+            window.clearInterval(speechPumpIntervalRef.current);
+            speechPumpIntervalRef.current = null;
+          }
+          speakerLevelRef.current = 0;
+          setIsModelSpeaking(false);
+        };
+        utt.onend = finish;
+        utt.onerror = finish;
+      }
+
+      synth.speak(utt);
+    });
+  };
+
   const stopQueuedOutputAudio = () => {
     for (const src of activeSourcesRef.current) {
       try {
         src.stop();
       } catch {
-        // ignore already-stopped sources
+        // ignore
       }
     }
     activeSourcesRef.current = [];
@@ -228,6 +358,7 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
     } else {
       nextStartTimeRef.current = 0;
     }
+    stopBrowserSpeech();
     speakerLevelRef.current = 0;
     setIsModelSpeaking(false);
   };
@@ -250,7 +381,6 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       const floatSamples = decodeBase64Pcm24k(base64Pcm);
       if (floatSamples.length === 0) return;
 
-      // Compute peak for visualizer
       let peak = 0;
       for (let i = 0; i < floatSamples.length; i += 8) {
         const abs = Math.abs(floatSamples[i]);
@@ -348,8 +478,6 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       inputCtxRef.current = null;
     }
 
-    stopQueuedOutputAudio();
-
     if (wsRef.current) {
       try {
         if (wsRef.current.readyState === WebSocket.OPEN) {
@@ -366,6 +494,13 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   useEffect(() => {
     return () => {
       cleanupLiveResources();
+      stopQueuedOutputAudio();
+      cancelAnimationFrame(pttMeterFrameRef.current);
+      if (pttAnalyserCtxRef.current && pttAnalyserCtxRef.current.state !== 'closed') {
+        try {
+          void pttAnalyserCtxRef.current.close();
+        } catch {}
+      }
       if (outputCtxRef.current && outputCtxRef.current.state !== 'closed') {
         try {
           void outputCtxRef.current.close();
@@ -374,14 +509,84 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
     };
   }, []);
 
+  const executeServerlessTurn = async (params: {
+    text?: string;
+    transcript?: string;
+    audioBase64?: string;
+    audioMimeType?: string;
+  }) => {
+    setIsFallbackBusy(true);
+    setErrorBanner(null);
+
+    try {
+      const recentHistory = transcripts
+        .filter((t) => t.role === 'user' || t.role === 'assistant')
+        .slice(-8)
+        .map((t) => ({ role: t.role, text: t.text }));
+
+      const res = await fetch(apiUrl('/api/live-voice-turn'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: params.text,
+          transcript: params.transcript,
+          audioBase64: params.audioBase64,
+          audioMimeType: params.audioMimeType,
+          voiceName: selectedVoice,
+          forensicContext: includeContext ? forensicSummaryContext : '',
+          siteData: includeContext ? siteDataSnapshot : undefined,
+          history: recentHistory,
+        }),
+      });
+
+      const parsed = await safeReadJsonResponse<any>(res);
+      const payload = parsed.data || {};
+
+      let replyText = '';
+      let audioPcmBase64: string | null = null;
+
+      if (res.ok && payload.replyText) {
+        replyText = payload.replyText;
+        audioPcmBase64 = payload.audioPcmBase64 || null;
+      } else {
+        // Offline / emergency local real-data answer
+        const fallbackQuery = params.text || params.transcript || 'حالة المنصة';
+        replyText = buildClientEmergencyRealReply(fallbackQuery, siteDataSnapshot);
+      }
+
+      appendOrMergeTranscript('assistant', replyText);
+      finalizeCurrentPartialTranscripts();
+
+      if (autoSpeakRef.current) {
+        if (audioPcmBase64) {
+          await schedulePcm24kPlayback(audioPcmBase64);
+        } else {
+          speakTextViaBrowserTts(replyText);
+        }
+      }
+    } catch {
+      const emergencyText = buildClientEmergencyRealReply(
+        params.text || params.transcript || 'حالة المنصة',
+        siteDataSnapshot
+      );
+      appendOrMergeTranscript('assistant', emergencyText);
+      finalizeCurrentPartialTranscripts();
+      if (autoSpeakRef.current) {
+        speakTextViaBrowserTts(emergencyText);
+      }
+    } finally {
+      setIsFallbackBusy(false);
+    }
+  };
+
   const startLiveVoiceSession = async () => {
     if (connectionState === 'connecting' || connectionState === 'live') return;
     setErrorBanner(null);
+    primeSpeechSynthesisOnGesture();
     setConnectionState('connecting');
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setErrorBanner('المتصفح لا يدعم واجهة التقاط الميكروفون (getUserMedia) في هذا السياق.');
-      setConnectionState('error');
+      setConnectionState('fallback_ptt');
       return;
     }
 
@@ -405,7 +610,6 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      // Build 16kHz PCM capture pipeline
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const inputCtx = new AudioCtx({ sampleRate: 16000 });
       inputCtxRef.current = inputCtx;
@@ -485,12 +689,21 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
           } else if (msg.type === 'turn_complete') {
             finalizeCurrentPartialTranscripts();
           } else if (msg.type === 'error') {
-            setErrorBanner(msg.message || 'حدث خطأ في قناة الصوت الحية.');
-            onNotify(msg.message || 'خطأ في الجلسة الصوتية الحية', 'error');
+            // Switch cleanly into Serverless PTT + Browser Voice Synthesis if Live API key is absent
+            cleanupLiveResources();
+            setConnectionState('fallback_ptt');
+            appendOrMergeTranscript(
+              'system',
+              'تم التحويل التلقائي إلى وضع المحادثة الصوتية بالبيانات الحقيقية (اضغط للتحدث أو اكتب بالأسفل).'
+            );
           } else if (msg.type === 'closed') {
             finalizeCurrentPartialTranscripts();
             cleanupLiveResources();
-            setConnectionState('idle');
+            if (!openedLive) {
+              setConnectionState('fallback_ptt');
+            } else {
+              setConnectionState('idle');
+            }
           }
         } catch {
           // Ignore invalid JSON frames
@@ -498,21 +711,16 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       };
 
       ws.onerror = () => {
-        // Fallback smoothly if WebSocket upgrade isn't supported on stateless serverless hosting
         if (!openedLive) {
           cleanupLiveResources();
           setConnectionState('fallback_ptt');
-          setErrorBanner(
-            'الخادم يعمل بوضع Serverless لا يدعم WebSocket مستمراً؛ تم التفعيل التلقائي لوضع الجولات الصوتية الحية عبر HTTP.'
-          );
           appendOrMergeTranscript(
             'system',
-            'تم التبديل تلقائياً إلى وضع التحدث بالضغط (HTTP Voice Turn) المتوافق مع Vercel.'
+            'المساعد جاهز الآن على Vercel: اضغط للتحدث بصوتك أو أرسل رسالتك وسيتم الرد عليك صوتياً من بيانات موقعك الحقيقية.'
           );
         } else {
           cleanupLiveResources();
-          setConnectionState('error');
-          setErrorBanner('انقطع اتصال WebSocket الصوتي بشكل مفاجئ.');
+          setConnectionState('fallback_ptt');
         }
       };
 
@@ -520,9 +728,6 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
         if (!openedLive) {
           cleanupLiveResources();
           setConnectionState('fallback_ptt');
-          setErrorBanner(
-            'قناة WebSocket غير متاحة في هذه البيئة؛ يمكنك التحدث فوراً باستخدام زر اضغط للتحدث (HTTP Live Turn).'
-          );
         } else if (isStreamingRef.current) {
           finalizeCurrentPartialTranscripts();
           cleanupLiveResources();
@@ -531,27 +736,35 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       };
     } catch (err: any) {
       cleanupLiveResources();
-      setConnectionState('error');
-      const msg =
-        err?.name === 'NotAllowedError'
-          ? 'تم رفض إذن الميكروفون. يرجى السماح للمتصفح بالوصول إلى الميكروفون ثم إعادة المحاولة.'
-          : err?.message || 'تعذر بدء جلسة المحادثة الصوتية.';
-      setErrorBanner(msg);
-      onNotify(msg, 'error');
+      if (err?.name === 'NotAllowedError') {
+        setConnectionState('error');
+        const msg = 'تم رفض إذن الميكروفون. يرجى السماح للمتصفح بالوصول إلى الميكروفون أو استخدام المحادثة النصية مع الرد الصوتي بالأسفل.';
+        setErrorBanner(msg);
+        onNotify(msg, 'error');
+      } else {
+        setConnectionState('fallback_ptt');
+      }
     }
   };
 
   const stopLiveVoiceSession = () => {
     finalizeCurrentPartialTranscripts();
     cleanupLiveResources();
+    stopQueuedOutputAudio();
     setConnectionState('idle');
     appendOrMergeTranscript('system', 'تم إنهاء جلسة المحادثة الصوتية.');
   };
 
-  // HTTP Push-to-Talk fallback for serverless Vercel deployments
+  // Push-to-Talk with BOTH live SpeechRecognition (Arabic/English) + Audio RMS waveform + MediaRecorder
   const startPttTurn = async () => {
     if (isPttRecording || isFallbackBusy) return;
     setErrorBanner(null);
+    primeSpeechSynthesisOnGesture();
+    stopQueuedOutputAudio();
+
+    recognizedFinalRef.current = '';
+    setLiveRecognizedInterim('');
+
     try {
       await ensureOutputAudioContext();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -562,64 +775,123 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       recordedChunksRef.current = [];
       mediaRecorderRef.current = recorder;
 
+      // Real-time mic waveform meter while recording PTT
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const meterCtx = new AudioCtx();
+        pttAnalyserCtxRef.current = meterCtx;
+        const src = meterCtx.createMediaStreamSource(stream);
+        const analyser = meterCtx.createAnalyser();
+        analyser.fftSize = 256;
+        src.connect(analyser);
+        const buf = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          analyser.getByteTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) {
+            const v = (buf[i] - 128) / 128;
+            sum += v * v;
+          }
+          micLevelRef.current = Math.max(micLevelRef.current, Math.sqrt(sum / buf.length));
+          pttMeterFrameRef.current = requestAnimationFrame(tick);
+        };
+        pttMeterFrameRef.current = requestAnimationFrame(tick);
+      } catch {
+        // meter optional
+      }
+
+      // Browser native Web Speech Recognition (works natively on Android Chrome & Desktop Chrome/Edge)
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRec) {
+        try {
+          const rec = new SpeechRec();
+          rec.lang = 'ar-IQ';
+          rec.interimResults = true;
+          rec.continuous = true;
+          rec.onresult = (ev: any) => {
+            let finalText = '';
+            let interimText = '';
+            for (let i = 0; i < ev.results.length; i++) {
+              const r = ev.results[i];
+              if (r.isFinal) finalText += `${r[0].transcript} `;
+              else interimText += r[0].transcript;
+            }
+            recognizedFinalRef.current = finalText.trim();
+            setLiveRecognizedInterim((`${finalText} ${interimText}`).trim());
+          };
+          rec.onerror = () => {
+            // graceful no-op; audio blob still sent
+          };
+          rec.start();
+          speechRecRef.current = rec;
+        } catch {
+          speechRecRef.current = null;
+        }
+      }
+
       recorder.ondataavailable = (ev) => {
         if (ev.data.size > 0) recordedChunksRef.current.push(ev.data);
       };
 
       recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        setIsPttRecording(false);
-        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-        if (blob.size < 400) return;
-
-        setIsFallbackBusy(true);
-        try {
-          const base64Audio = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const result = String(reader.result || '');
-              resolve(result.split(',')[1] || '');
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-
-          appendOrMergeTranscript('user', '🎙️ [رسالة صوتية مرسلة للتحليل الفوري]');
-          finalizeCurrentPartialTranscripts();
-
-          const res = await fetch(apiUrl('/api/live-voice-turn'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              audioBase64: base64Audio,
-              audioMimeType: mimeType.split(';')[0],
-              voiceName: selectedVoice,
-              forensicContext: includeContext ? forensicSummaryContext : '',
-            }),
-          });
-          const parsed = await safeReadJsonResponse<any>(res);
-          const payload = parsed.data || {};
-          if (!res.ok || payload.error) {
-            throw new Error(payload.error || 'فشل تنفيذ الجولة الصوتية.');
-          }
-          appendOrMergeTranscript('assistant', payload.replyText || '');
-          finalizeCurrentPartialTranscripts();
-          if (payload.audioPcmBase64) {
-            await schedulePcm24kPlayback(payload.audioPcmBase64);
-          }
-        } catch (err: any) {
-          setErrorBanner(err?.message || 'تعذر معالجة الرسالة الصوتية.');
-          onNotify(err?.message || 'فشل الرد الصوتي', 'error');
-        } finally {
-          setIsFallbackBusy(false);
+        cancelAnimationFrame(pttMeterFrameRef.current);
+        if (pttAnalyserCtxRef.current && pttAnalyserCtxRef.current.state !== 'closed') {
+          try {
+            void pttAnalyserCtxRef.current.close();
+          } catch {}
+          pttAnalyserCtxRef.current = null;
         }
+        stream.getTracks().forEach((t) => t.stop());
+
+        if (speechRecRef.current) {
+          try {
+            speechRecRef.current.stop();
+          } catch {}
+          speechRecRef.current = null;
+        }
+
+        setIsPttRecording(false);
+        const capturedTranscript = (recognizedFinalRef.current || liveRecognizedInterim || '').trim();
+        setLiveRecognizedInterim('');
+
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        if (blob.size < 300 && !capturedTranscript) return;
+
+        const base64Audio =
+          blob.size >= 300
+            ? await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const result = String(reader.result || '');
+                  resolve(result.split(',')[1] || '');
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              })
+            : '';
+
+        appendOrMergeTranscript(
+          'user',
+          capturedTranscript || '🎙️ [رسالة صوتية مسجلة]'
+        );
+        finalizeCurrentPartialTranscripts();
+
+        await executeServerlessTurn({
+          text: capturedTranscript,
+          transcript: capturedTranscript,
+          audioBase64: base64Audio,
+          audioMimeType: mimeType.split(';')[0],
+        });
       };
 
       recorder.start();
       setIsPttRecording(true);
-      micLevelRef.current = 0.65;
     } catch (err: any) {
-      setErrorBanner(err?.message || 'تعذر الوصول إلى الميكروفون.');
+      setErrorBanner(
+        err?.name === 'NotAllowedError'
+          ? 'يرجى منح صلاحية الميكروفون في المتصفح للتحدث بصوتك، أو استخدام مربع الكتابة أدناه (سيتم الرد عليك صوتياً).'
+          : err?.message || 'تعذر الوصول إلى الميكروفون.'
+      );
     }
   };
 
@@ -629,12 +901,11 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
     }
   };
 
-  const handleSendTextTurn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = textInput.trim();
+  const sendTextOrQuickPrompt = async (rawText: string) => {
+    const clean = rawText.trim();
     if (!clean) return;
-    setTextInput('');
     setErrorBanner(null);
+    primeSpeechSynthesisOnGesture();
 
     if (connectionState === 'live' && wsRef.current?.readyState === WebSocket.OPEN) {
       appendOrMergeTranscript('user', clean);
@@ -643,39 +914,21 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       return;
     }
 
-    // Text turn via HTTP fallback when not in active WS stream
-    setIsFallbackBusy(true);
-    try {
-      await ensureOutputAudioContext();
-      appendOrMergeTranscript('user', clean);
-      finalizeCurrentPartialTranscripts();
-
-      const res = await fetch(apiUrl('/api/live-voice-turn'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: clean,
-          voiceName: selectedVoice,
-          forensicContext: includeContext ? forensicSummaryContext : '',
-        }),
-      });
-      const parsed = await safeReadJsonResponse<any>(res);
-      const payload = parsed.data || {};
-      if (!res.ok || payload.error) {
-        throw new Error(payload.error || 'فشل إرسال الرسالة الصوتية.');
-      }
-      appendOrMergeTranscript('assistant', payload.replyText || '');
-      finalizeCurrentPartialTranscripts();
-      if (payload.audioPcmBase64) {
-        await schedulePcm24kPlayback(payload.audioPcmBase64);
-      }
-    } catch (err: any) {
-      setErrorBanner(err?.message || 'تعذر الحصول على رد صوتي.');
-      onNotify(err?.message || 'تعذر الإرسال', 'error');
-    } finally {
-      setIsFallbackBusy(false);
-    }
+    await ensureOutputAudioContext();
+    appendOrMergeTranscript('user', clean);
+    finalizeCurrentPartialTranscripts();
+    await executeServerlessTurn({ text: clean, transcript: clean });
   };
+
+  const handleSendTextTurn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = textInput.trim();
+    if (!clean || isFallbackBusy) return;
+    setTextInput('');
+    await sendTextOrQuickPrompt(clean);
+  };
+
+  const siteCounts = siteDataSnapshot.counts;
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -685,13 +938,13 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] font-mono text-[#D4AF37]">
               <AudioLines className="w-3.5 h-3.5" />
-              <span>GEMINI LIVE REAL-TIME VOICE • 16kHz IN / 24kHz PCM OUT</span>
+              <span>GEMINI LIVE VOICE + REAL-TIME SITE DATA ENGINE</span>
             </div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2.5">
               <span>المحادثة الصوتية الحية (Sovereign Live Voice Core)</span>
             </h2>
             <p className="text-xs text-gray-400 leading-relaxed max-w-2xl">
-              محادثة صوتية ثنائية الاتجاه بالزمن الحقيقي عبر <span className="font-mono text-gray-300">gemini-3.8-live</span>، مع التقاط صوتي حي 16kHz وبث صوتي مستمر 24kHz ودعم المقاطعة الفورية (Barge-In) وتفريغ النص لحظياً.
+              محادثة صوتية ونصية متصلة مباشرة ببيانات موقعك الحقيقية (الأدلة، البصمات، القضايا، التغذيات الحية، وسجل العمليات)، مع استجابة صوتية منطوقة وفحص حي لمؤشرات OSINT.
             </p>
           </div>
 
@@ -703,23 +956,23 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
                   : connectionState === 'connecting'
                   ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                   : connectionState === 'fallback_ptt'
-                  ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
                   : connectionState === 'error'
                   ? 'bg-red-500/15 border-red-500/40 text-red-300'
-                  : 'bg-gray-950 border-gray-800 text-gray-400'
+                  : 'bg-gray-950 border-gray-800 text-gray-300'
               }`}
             >
-              <Radio className={`w-3.5 h-3.5 ${connectionState === 'live' ? 'animate-pulse' : ''}`} />
+              <Radio className={`w-3.5 h-3.5 ${connectionState === 'live' || isPttRecording ? 'animate-pulse' : ''}`} />
               <span>
                 {connectionState === 'live'
                   ? 'قناة الصوت الحية متصلة'
                   : connectionState === 'connecting'
                   ? 'جاري تأسيس القناة...'
                   : connectionState === 'fallback_ptt'
-                  ? 'وضع HTTP الصوتي (Serverless)'
+                  ? 'الصوت الحي والبيانات الفعلية نشطة'
                   : connectionState === 'error'
-                  ? 'تعذر الاتصال'
-                  : 'جاهز للاتصال'}
+                  ? 'تحقق من إذن الميكروفون'
+                  : 'جاهز للمحادثة الصوتية'}
               </span>
             </div>
 
@@ -746,6 +999,31 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
           </div>
         </div>
 
+        {/* Live Connected Site Data Summary Strip */}
+        {siteCounts && (
+          <div className="mt-4 pt-4 border-t border-gray-800/80 flex flex-wrap items-center gap-3 text-[11px] text-gray-300">
+            <span className="inline-flex items-center gap-1.5 text-[#D4AF37] font-bold">
+              <Database className="w-3.5 h-3.5" />
+              بيانات موقعك المتصلة بالمساعد:
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-gray-950 border border-gray-800">
+              الأدلة: <strong className="text-white">{siteCounts.evidence}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-gray-950 border border-gray-800">
+              العمليات: <strong className="text-white">{siteCounts.auditLogs}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-gray-950 border border-gray-800">
+              القضايا: <strong className="text-white">{siteCounts.investigations}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-gray-950 border border-gray-800">
+              التغذيات الحية: <strong className="text-white">{siteCounts.liveFeeds}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-gray-950 border border-gray-800">
+              التنبيهات الحرجة: <strong className="text-amber-400">{siteCounts.criticalAlerts}</strong>
+            </span>
+          </div>
+        )}
+
         {errorBanner && (
           <div className="mt-4 p-3.5 rounded-2xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -754,9 +1032,9 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
         )}
       </div>
 
-      {/* Main Split Workspace: Controls + Waveform / Live Transcript */}
+      {/* Main Split Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Control & Audio Visualizer Panel */}
+        {/* Controls & Audio Visualizer Panel */}
         <div className="lg:col-span-5 space-y-4">
           <div className="rounded-3xl bg-gray-900 border border-gray-800 p-5 space-y-5 shadow-xl">
             <div className="flex items-center justify-between">
@@ -765,7 +1043,11 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
                 <span>المرسم الطيفي الصوتي (Live Waveform)</span>
               </div>
               <span className="text-[10px] font-mono text-gray-400">
-                {isModelSpeaking ? 'AI SPEAKING • 24kHz' : connectionState === 'live' ? 'LISTENING • 16kHz' : 'STANDBY'}
+                {isModelSpeaking
+                  ? 'AI SPEAKING'
+                  : connectionState === 'live' || isPttRecording
+                  ? 'LISTENING...'
+                  : 'READY'}
               </span>
             </div>
 
@@ -778,10 +1060,48 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-[#D4AF37]" />
-                  المساعد الصوتي
+                  صوت المساعد
                 </span>
               </div>
             </div>
+
+            {/* Instant Push-To-Talk Control (Always ready when not in active WS stream) */}
+            {connectionState !== 'live' && (
+              <div className="p-3.5 rounded-2xl bg-sky-950/30 border border-sky-500/35 space-y-2.5">
+                <div className="text-[11px] text-sky-200 font-bold flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Wifi className="w-3.5 h-3.5 text-sky-400" />
+                    <span>التحدث بالضغط والاستماع المباشر</span>
+                  </span>
+                  {isPttRecording && <span className="text-red-400 font-mono">REC LIVE</span>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => (isPttRecording ? stopPttTurn() : void startPttTurn())}
+                  disabled={isFallbackBusy}
+                  className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
+                    isPttRecording
+                      ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse'
+                      : 'bg-sky-500 hover:bg-sky-400 text-gray-950'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                  <span>
+                    {isFallbackBusy
+                      ? 'جاري تحليل الصوت والبيانات وتوليد الرد...'
+                      : isPttRecording
+                      ? 'اضغط للإيقاف وإرسال صوتك الآن'
+                      : 'اضغط للتحدث وتسجيل جولة صوتية'}
+                  </span>
+                </button>
+                {isPttRecording && liveRecognizedInterim && (
+                  <div className="p-2 rounded-xl bg-gray-950/80 border border-sky-500/30 text-[11px] text-sky-100">
+                    <span className="text-sky-400 font-bold">يتم التقاط صوتك: </span>
+                    {liveRecognizedInterim}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Live Action Controls */}
             <div className="grid grid-cols-2 gap-2.5">
@@ -810,40 +1130,11 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
               </button>
             </div>
 
-            {/* Serverless HTTP Push-to-Talk Fallback Control */}
-            {connectionState === 'fallback_ptt' && (
-              <div className="p-3.5 rounded-2xl bg-sky-950/30 border border-sky-500/30 space-y-2.5">
-                <div className="text-[11px] text-sky-200 font-bold flex items-center gap-2">
-                  <Wifi className="w-3.5 h-3.5 text-sky-400" />
-                  <span>التحدث بالضغط (وضع Serverless HTTP)</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => (isPttRecording ? stopPttTurn() : void startPttTurn())}
-                  disabled={isFallbackBusy}
-                  className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
-                    isPttRecording
-                      ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse'
-                      : 'bg-sky-500 hover:bg-sky-400 text-gray-950'
-                  }`}
-                >
-                  <Mic className="w-4 h-4" />
-                  <span>
-                    {isFallbackBusy
-                      ? 'جاري تحليل الصوت وتوليد الرد...'
-                      : isPttRecording
-                      ? 'اضغط للإيقاف وإرسال الصوت'
-                      : 'اضغط للتحدث وتسجيل جولة صوتية'}
-                  </span>
-                </button>
-              </div>
-            )}
-
             {/* Voice Selection */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-300 flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>نبرة الصوت المختارة (Gemini Prebuilt Voice)</span>
+                <span>نبرة الصوت المختارة</span>
               </label>
               <div className="grid grid-cols-1 gap-1.5">
                 {VOICE_OPTIONS.map((voice) => {
@@ -868,31 +1159,53 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
               </div>
             </div>
 
-            {/* Forensic Context Injection Toggle */}
-            <label className="flex items-center justify-between p-3 rounded-xl bg-gray-950 border border-gray-800 cursor-pointer">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <div>
-                  <div className="text-xs font-bold text-white">تضمين سياق المنصة الجنائي</div>
-                  <div className="text-[10px] text-gray-400">تزويد المحادثة بملخص الأدلة والسجلات النشطة</div>
+            {/* Toggles */}
+            <div className="space-y-2">
+              <label className="flex items-center justify-between p-3 rounded-xl bg-gray-950 border border-gray-800 cursor-pointer">
+                <div className="flex items-center gap-2">
+                  {autoSpeakReplies ? (
+                    <Volume2 className="w-4 h-4 text-[#D4AF37]" />
+                  ) : (
+                    <VolumeX className="w-4 h-4 text-gray-500" />
+                  )}
+                  <div>
+                    <div className="text-xs font-bold text-white">نطق ردود المساعد صوتياً تلقائياً</div>
+                    <div className="text-[10px] text-gray-400">تشغيل الصوت للردود المرسلة والمحكية</div>
+                  </div>
                 </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={includeContext}
-                onChange={(e) => setIncludeContext(e.target.checked)}
-                className="w-4 h-4 accent-[#D4AF37]"
-              />
-            </label>
+                <input
+                  type="checkbox"
+                  checked={autoSpeakReplies}
+                  onChange={(e) => setAutoSpeakReplies(e.target.checked)}
+                  className="w-4 h-4 accent-[#D4AF37]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-3 rounded-xl bg-gray-950 border border-gray-800 cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <div className="text-xs font-bold text-white">تضمين بيانات موقعي الحقيقية</div>
+                    <div className="text-[10px] text-gray-400">الأدلة، سجل العمليات، القضايا، والتغذيات الحية</div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={includeContext}
+                  onChange={(e) => setIncludeContext(e.target.checked)}
+                  className="w-4 h-4 accent-[#D4AF37]"
+                />
+              </label>
+            </div>
           </div>
         </div>
 
-        {/* Right Live Transcript & Hybrid Prompt Panel */}
-        <div className="lg:col-span-7 flex flex-col rounded-3xl bg-gray-900 border border-gray-800 shadow-xl overflow-hidden min-h-[520px]">
+        {/* Live Transcript & Hybrid Prompt Panel */}
+        <div className="lg:col-span-7 flex flex-col rounded-3xl bg-gray-900 border border-gray-800 shadow-xl overflow-hidden min-h-[540px]">
           <div className="px-5 py-3.5 border-b border-gray-800 bg-gray-950/60 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-white">
               <AudioLines className="w-4 h-4 text-[#D4AF37]" />
-              <span>سجل التفريغ الصوتي الفوري (Live Audio Transcript)</span>
+              <span>المحادثة الصوتية والنصية الفورية (Live Transcript)</span>
             </div>
             <button
               type="button"
@@ -910,9 +1223,9 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
                 <div className="w-14 h-14 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
                   <AudioLines className="w-7 h-7" />
                 </div>
-                <div className="text-sm font-bold text-white">ابدأ المحادثة الصوتية الحية</div>
+                <div className="text-sm font-bold text-white">تحدث أو أرسل رسالة للمساعد</div>
                 <p className="text-xs max-w-md leading-relaxed">
-                  اضغط على <span className="text-[#D4AF37] font-bold">«بدء محادثة صوتية حية»</span> وتحدث مباشرة بالعربية أو الإنجليزية عن أي دليل رقمي، حزمة APK، ثغرة CVE، أو مؤشر تهديد؛ أو اكتب سؤالاً أدناه للحصول على رد صوتي منطوق.
+                  اضغط على <span className="text-sky-400 font-bold">«اضغط للتحدث وتسجيل جولة صوتية»</span> أو <span className="text-[#D4AF37] font-bold">«بدء محادثة صوتية حية»</span> أو اكتب سؤالك بالأسفل وسيجيبك المساعد نصياً وصوتياً من بيانات موقعك الحقيقية.
                 </p>
               </div>
             ) : (
@@ -943,7 +1256,19 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
                         <span className={entry.role === 'user' ? 'text-emerald-400' : 'text-[#D4AF37]'}>
                           {entry.role === 'user' ? 'أنت (صوت/نص)' : 'Sovereign Voice Core'}
                         </span>
-                        <span>{entry.timestamp}</span>
+                        <div className="flex items-center gap-2">
+                          {entry.role === 'assistant' && (
+                            <button
+                              type="button"
+                              onClick={() => speakTextViaBrowserTts(entry.text)}
+                              title="استماع للرد صوتياً"
+                              className="text-[#D4AF37] hover:text-white cursor-pointer"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <span>{entry.timestamp}</span>
+                        </div>
                       </div>
                       <div className="whitespace-pre-wrap">{entry.text}</div>
                     </div>
@@ -952,6 +1277,26 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
               ))
             )}
             <div ref={transcriptEndRef} />
+          </div>
+
+          {/* Quick Real-Data Prompts */}
+          <div className="px-4 py-2 border-t border-gray-800/80 bg-gray-950/50 flex flex-wrap gap-1.5">
+            {[
+              'أعطني ملخص بيانات موقعي الحقيقية الآن',
+              'ما هي أحدث الأدلة المرفوعة؟',
+              'ما أخطر التهديدات والثغرات الحالية؟',
+              'افحص 8.8.8.8 بالبيانات الحية',
+            ].map((q) => (
+              <button
+                key={q}
+                type="button"
+                disabled={isFallbackBusy}
+                onClick={() => void sendTextOrQuickPrompt(q)}
+                className="px-2.5 py-1 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-[10px] text-gray-300 transition cursor-pointer disabled:opacity-50"
+              >
+                {q}
+              </button>
+            ))}
           </div>
 
           {/* Hybrid Text-to-Voice Turn Bar */}
@@ -966,7 +1311,7 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
               placeholder={
                 connectionState === 'live'
                   ? 'أرسل توجيهاً نصياً فورياً داخل المكالمة الحية...'
-                  : 'اكتب سؤالاً ليتم الرد عليه صوتياً فوراً...'
+                  : 'اكتب أي سؤال عن موقعك أو أدلتك ليتم الرد عليك نصياً وصوتياً فوراً...'
               }
               className="flex-1 px-4 py-2.5 rounded-xl bg-gray-900 border border-gray-800 focus:border-[#D4AF37] text-xs text-white placeholder-gray-500 outline-none transition"
             />
@@ -976,7 +1321,7 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
               className="px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:opacity-90 disabled:opacity-50 text-gray-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>{isFallbackBusy ? 'جاري التوليد...' : 'إرسال'}</span>
+              <span>{isFallbackBusy ? 'جاري الرد...' : 'إرسال'}</span>
             </button>
           </form>
         </div>
