@@ -74,9 +74,12 @@ function loadActiveFirebaseConfig(): { config: SovereignFirebaseConfig; isCustom
     // Fallback cleanly to active provisioned config
   }
   const baseConfig = defaultFirebaseConfig as SovereignFirebaseConfig;
-  const resolvedAuthDomain = (
-    (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || 'sovqs.vercel.app'
-  ).trim().toLowerCase();
+  const envCustomAuthDomain = ((import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || '').trim().toLowerCase();
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+  const resolvedAuthDomain =
+    envCustomAuthDomain && currentHost === envCustomAuthDomain
+      ? envCustomAuthDomain
+      : baseConfig.authDomain;
 
   return {
     config: {
