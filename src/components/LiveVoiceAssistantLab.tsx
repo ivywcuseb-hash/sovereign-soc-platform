@@ -303,8 +303,15 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       ? voices.find((v) => v.lang.toLowerCase().startsWith('ar')) || null
       : voices.find((v) => v.lang.toLowerCase().startsWith('en')) || null;
 
+    const speakableText = rawText
+      .replace(/```[\s\S]*?```/g, ' مقطع برمجي مرفق في النص. ')
+      .replace(/[*_`#>|]/g, ' ')
+      .replace(/^\s*[-•]\s*/gm, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
     // Split into clean clauses so Android Chrome never drops long utterances
-    const chunks = rawText
+    const chunks = speakableText
       .replace(/([.!؟?\n؛]+)/g, '$1|')
       .split('|')
       .map((s) => s.trim())

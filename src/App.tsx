@@ -14465,22 +14465,24 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length +
                   (liveFeedsResult?.items?.filter((f) => f.severity === 'critical' || f.severity === 'high').length || 0),
               },
-              investigations: investigations.slice(0, 8).map((inv) => ({
+              investigations: investigations.slice(0, 15).map((inv) => ({
                 title: inv.title,
                 caseNumber: inv.caseNumber,
                 status: inv.status,
                 createdAt: inv.createdAt,
               })),
-              evidence: evidenceList.slice(0, 10).map((ev) => ({
+              evidence: evidenceList.slice(0, 30).map((ev) => ({
                 fileName: ev.fileName,
                 fileSize: ev.fileSize,
                 sha256: ev.sha256,
                 riskLevel: ev.analysis?.riskLevel,
                 verdict: ev.analysis?.verdict,
                 authenticityScore: ev.analysis?.authenticityScore,
+                detectedFileType: ev.analysis?.detectedFileType,
+                isMasqueraded: ev.analysis?.isMasqueraded,
                 createdAt: ev.createdAt,
               })),
-              auditLogs: auditLogs.slice(0, 12).map((log) => ({
+              auditLogs: auditLogs.slice(0, 30).map((log) => ({
                 fileName: log.fileName,
                 verdict: log.verdict,
                 risk: log.risk,
@@ -14489,7 +14491,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 sha256: log.sha256,
                 timestamp: log.timestamp,
               })),
-              liveFeeds: (liveFeedsResult?.items || []).slice(0, 12).map((item) => ({
+              liveFeeds: (liveFeedsResult?.items || []).slice(0, 30).map((item) => ({
                 title: item.title,
                 sourceName: item.sourceName,
                 category: item.category,
@@ -14499,7 +14501,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 cvssScore: item.cvssScore,
                 publishedAt: item.publishedAt,
               })),
-              telemetry: telemetryLogs.slice(0, 8).map((t) => ({
+              telemetry: telemetryLogs.slice(0, 12).map((t) => ({
                 subsystem: t.subsystem,
                 level: t.level,
                 message: t.message,
@@ -14513,6 +14515,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     authenticityScore: analysisResult.authenticityScore,
                     sha256: analysisResult.sha256,
                     detectedFileType: analysisResult.detectedFileType,
+                    entropy: analysisResult.entropy,
+                    isMasqueraded: analysisResult.isMasqueraded,
                   }
                 : null,
               apkResult: apkStaticResult
