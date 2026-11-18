@@ -75,7 +75,9 @@ import {
   Bug,
   FileCheck2,
   Route,
-  ScanEye
+  ScanEye,
+  Radar,
+  PieChart
 } from 'lucide-react';
 import {
   LayoutCustomizerDrawer,
@@ -177,6 +179,11 @@ import {
   UrlRedirectTracerLab,
   StegLsbInspectorLab,
 } from './components/ForensicDeepLabs';
+import {
+  CyberTelemetryNetworkDashboard,
+  VulnMgmtKevDashboard,
+  AssetOsDistributionDashboard,
+} from './components/SocDashboardsSuite';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
@@ -437,7 +444,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [isSavingPin, setIsSavingPin] = useState<boolean>(false);
   const [showPinChangeModal, setShowPinChangeModal] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -6008,6 +6015,18 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 <ScanEye className="w-4 h-4" />
                 كاشف الإخفاء LSB
               </button>
+              <button onClick={() => handleSelectTab('cyber_telemetry')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('cyber_telemetry') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Radar className="w-4 h-4" />
+                تدفق الشبكة SOC
+              </button>
+              <button onClick={() => handleSelectTab('vuln_kev_dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('vuln_kev_dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <ShieldAlert className="w-4 h-4" />
+                لوحة الثغرات KEV
+              </button>
+              <button onClick={() => handleSelectTab('asset_os_dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('asset_os_dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <PieChart className="w-4 h-4" />
+                توزيع الأصول والأنظمة
+              </button>
               <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
                 <FileText className="w-4 h-4" />
                 التقارير الموثقة
@@ -6308,6 +6327,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             <button onClick={() => handleSelectTab('pdf_forensics')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('pdf_forensics') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل PDF</button>
             <button onClick={() => handleSelectTab('url_tracer')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('url_tracer') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>متتبع الروابط</button>
             <button onClick={() => handleSelectTab('steg_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('steg_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>كاشف الإخفاء LSB</button>
+            <button onClick={() => handleSelectTab('cyber_telemetry')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('cyber_telemetry') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تدفق الشبكة SOC</button>
+            <button onClick={() => handleSelectTab('vuln_kev_dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('vuln_kev_dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>ثغرات KEV</button>
+            <button onClick={() => handleSelectTab('asset_os_dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('asset_os_dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الأصول والأنظمة</button>
             <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
             <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
           </div>
@@ -14279,6 +14301,69 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {isTabVisible('steg_inspector') && (
           <StegLsbInspectorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('cyber_telemetry') && (
+          <CyberTelemetryNetworkDashboard
+            auditLogs={auditLogs}
+            telemetryLogs={telemetryLogs}
+            liveFeedItems={liveFeedsResult?.items || []}
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('vuln_kev_dashboard') && (
+          <VulnMgmtKevDashboard
+            liveFeedItems={liveFeedsResult?.items || []}
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('asset_os_dashboard') && (
+          <AssetOsDistributionDashboard
+            auditLogs={auditLogs}
+            evidenceList={evidenceList}
             onNotify={notifyStatus}
             onRecordAudit={(p) =>
               void saveAuditLog({

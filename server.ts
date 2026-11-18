@@ -18,6 +18,7 @@ import sslInspectHandler from './api/ssl-inspect.ts';
 import ipGeoThreatHandler from './api/ip-geo-threat.ts';
 import malwareHashHandler from './api/malware-hash.ts';
 import urlTraceHandler from './api/url-trace.ts';
+import socKevEpssHandler from './api/soc-kev-epss.ts';
 import {
   type AuthedRequest,
   securityMonitor,
@@ -1504,6 +1505,8 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
   app.post('/api/ip-geo-threat', probeRateLimit, optionalVerifiedAuth, (req, res) => ipGeoThreatHandler(req, res));
   app.post('/api/malware-hash', probeRateLimit, optionalVerifiedAuth, (req, res) => malwareHashHandler(req, res));
   app.post('/api/url-trace', probeRateLimit, optionalVerifiedAuth, (req, res) => urlTraceHandler(req, res));
+  app.get('/api/soc-kev-epss', probeRateLimit, optionalVerifiedAuth, (req, res) => socKevEpssHandler(req, res));
+  app.post('/api/soc-kev-epss', probeRateLimit, optionalVerifiedAuth, (req, res) => socKevEpssHandler(req, res));
 
   // Search API
   app.post('/api/search', aiRateLimit, optionalVerifiedAuth, async (req, res) => {

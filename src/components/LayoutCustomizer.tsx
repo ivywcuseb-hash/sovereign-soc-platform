@@ -45,6 +45,9 @@ import {
   FileCheck2,
   Route,
   ScanEye,
+  Radar,
+  ShieldAlert,
+  PieChart,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -82,7 +85,10 @@ export type AppTabId =
   | 'malware_hash'
   | 'pdf_forensics'
   | 'url_tracer'
-  | 'steg_inspector';
+  | 'steg_inspector'
+  | 'cyber_telemetry'
+  | 'vuln_kev_dashboard'
+  | 'asset_os_dashboard';
 
 export type LayoutStructure =
   | 'top'
@@ -140,6 +146,9 @@ export interface NavTabMeta {
 
 export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'dashboard', label: 'لوحة التحكم', shortLabel: 'الرئيسية', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'cyber_telemetry', label: 'مراقبة تدفق الشبكة (SOC)', shortLabel: 'تدفق الشبكة', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'vuln_kev_dashboard', label: 'إدارة الثغرات (KEV & EPSS)', shortLabel: 'ثغرات KEV', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'asset_os_dashboard', label: 'الأصول وأنظمة التشغيل', shortLabel: 'توزيع الأصول', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'live_feeds', label: 'التغذيات الحية', shortLabel: 'التغذيات', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'audit', label: 'سجل العمليات', shortLabel: 'السجل', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'reports', label: 'التقارير الموثقة', shortLabel: 'التقارير', group: 'command', groupLabel: 'القيادة والمراقبة' },
@@ -228,6 +237,12 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <Route className={className} />;
     case 'steg_inspector':
       return <ScanEye className={className} />;
+    case 'cyber_telemetry':
+      return <Radar className={className} />;
+    case 'vuln_kev_dashboard':
+      return <ShieldAlert className={className} />;
+    case 'asset_os_dashboard':
+      return <PieChart className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:
