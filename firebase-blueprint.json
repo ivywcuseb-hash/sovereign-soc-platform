@@ -184,6 +184,17 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [ "userId", "plan", "status", "createdAt", "updatedAt" ]
+    },
+    "PlatformToolConfig": {
+      "title": "PlatformToolConfig",
+      "description": "Owner-managed list of paid/locked tabs enforced for non-subscribed users",
+      "type": "object",
+      "properties": {
+        "paidTabs": { "type": "array" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "paidTabs", "updatedAt" ]
     }
   },
   "firestore": {
@@ -194,6 +205,10 @@
     "/subscriptions/{userId}": {
       "schema": "Subscription",
       "description": "Admin-managed user subscription plans and status"
+    },
+    "/platform_config/{configId}": {
+      "schema": "PlatformToolConfig",
+      "description": "Owner-managed platform settings such as paid/free tool toggles"
     },
     "/admins/{adminId}": {
       "schema": "AdminRegistry",

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Lock,
+  Unlock,
   Crown,
   CheckCircle2,
   X,
@@ -11,6 +12,8 @@ import {
   Ban,
   UserCheck,
   Search,
+  SlidersHorizontal,
+  RotateCcw,
 } from 'lucide-react';
 import {
   collection,
@@ -20,8 +23,14 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { NAV_TABS_META, type AppTabId } from './LayoutCustomizer';
 import {
+  NAV_TABS_META,
+  NAV_GROUP_ORDER,
+  renderTabIcon,
+  type AppTabId,
+} from './LayoutCustomizer';
+import {
+  DEFAULT_PAID_TABS,
   isSubscriptionActive,
   OWNER_EMAILS,
   OWNER_UIDS,
@@ -234,6 +243,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
   accessState,
   onNotify,
 }) => {
+  const [ownerConsoleTab, setOwnerConsoleTab] = useState<'tools' | 'users'>('tools');
   const [usersList, setUsersList] = useState<AdminUserSummary[]>([]);
   const [subsMap, setSubsMap] = useState<Record<string, UserSubscriptionRecord>>({});
   const [loading, setLoading] = useState(true);
@@ -242,7 +252,9 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId>('pro');
   const [durationDays, setDurationDays] = useState<number>(30);
   const [searchTerm, setSearchTerm] = useState('');
+  const [toolSearchTerm, setToolSearchTerm] = useState('');
   const [savingUid, setSavingUid] = useState<string | null>(null);
+  const [savingToolId, setSavingToolId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accessState.isAdminOrOwner) return;
@@ -298,6 +310,40 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
   }, [accessState.isAdminOrOwner]);
 
   if (!accessState.isAdminOrOwner) return null;
+
+  const persistPaidTabs = async (nextTabs: AppTabId[], actionKey: string, successMessage: string) => {
+    setSavingToolId(actionKey);
+    try {
+      const sanitizedPaidTabs = Array.from(new Set(nextTabs)).filter((id) => id !== 'profile');
+      await setDoc(doc(db, 'platform_config', 'tool_access'), {
+        paidTabs: sanitizedPaidTabs,
+        updatedBy: currentUserUid,
+        updatedAt: new Date().toISOString(),
+      });
+      onNotify(successMessage, 'success');
+    } catch (err: any) {
+      console.error('Update platform tool access error:', err);
+      onNotify(err?.message || 'تعذر حفظ إعدادات قفل الأدوات في Firestore.', 'error');
+      try {
+        handleFirestoreError(err, OperationType.WRITE, 'platform_config/tool_access');
+      } catch {}
+    } finally {
+      setSavingToolId(null);
+    }
+  };
+
+  const toggleToolPaidStatus = (tabId: AppTabId, label: string) => {
+    if (tabId === 'profile') return;
+    const currentlyPaid = accessState.isTabPaidForUsers(tabId);
+    const currentList = Array.from(accessState.activePaidTabs);
+    const nextList = currentlyPaid
+      ? currentList.filter((id) => id !== tabId)
+      : [...currentList, tabId];
+    const message = currentlyPaid
+      ? `تم فتح أداة "${label}" مجاناً لجميع المستخدمين.`
+      : `تم قفل أداة "${label}" كأداة مدفوعة لغير المشتركين (تبقى مفتوحة لك مباشرة).`;
+    void persistPaidTabs(nextList, tabId, message);
+  };
 
   const grantSubscription = async (
     uid: string,
@@ -381,188 +427,375 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
     );
   });
 
+  const normalizedToolQuery = toolSearchTerm.trim().toLowerCase();
+  const paidToolsCount = NAV_TABS_META.filter((t) => accessState.isTabPaidForUsers(t.id)).length;
+  const freeToolsCount = NAV_TABS_META.length - paidToolsCount;
+
   return (
-    <div className="bg-gray-950/70 border border-[#D4AF37]/40 rounded-2xl p-6 space-y-5">
+    <div id="owner-management-console" className="bg-gray-950/70 border border-[#D4AF37]/40 rounded-2xl p-6 space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-800">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/40 flex items-center justify-center text-[#D4AF37]">
+          <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/40 flex items-center justify-center text-[#D4AF37] shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white">إدارة اشتراكات المستخدمين (لوحة المالك والأدمن)</h3>
+            <h3 className="text-sm font-bold text-white">لوحة إدارة المالك والمطور</h3>
             <p className="text-[11px] text-gray-400">
-              تفعيل أو إيقاف الباقات المدفوعة في مجموعة <code className="text-[#D4AF37]">subscriptions</code> في Firestore. حسابك معفى تلقائياً بالكامل.
+              تحكم مباشر في قفل أو فتح أي أداة لبقية المستخدمين وإدارة اشتراكات Firestore. حسابك معفى بالكامل وتفتح لك كل الأدوات فوراً.
             </p>
           </div>
         </div>
-        <span className="px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold shrink-0">
+        <span className="px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold shrink-0 self-start sm:self-center">
           وصول المالك مفتوح بالكامل
         </span>
       </div>
 
-      {/* Quick Grant Form by UID */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void grantSubscription(targetUid, targetEmail, selectedPlan, durationDays);
-        }}
-        className="grid grid-cols-1 md:grid-cols-12 gap-2.5 bg-gray-900 p-4 rounded-xl border border-gray-800"
-      >
-        <input
-          type="text"
-          dir="ltr"
-          value={targetUid}
-          onChange={(e) => setTargetUid(e.target.value)}
-          placeholder="Firebase User UID..."
-          className="md:col-span-4 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
-          required
-        />
-        <input
-          type="email"
-          dir="ltr"
-          value={targetEmail}
-          onChange={(e) => setTargetEmail(e.target.value)}
-          placeholder="البريد (اختياري)"
-          className="md:col-span-3 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
-        />
-        <select
-          value={selectedPlan}
-          onChange={(e) => setSelectedPlan(e.target.value as SubscriptionPlanId)}
-          className="md:col-span-2 px-2.5 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
-        >
-          <option value="pro">Pro</option>
-          <option value="enterprise">Enterprise</option>
-        </select>
-        <select
-          value={durationDays}
-          onChange={(e) => setDurationDays(Number(e.target.value))}
-          className="md:col-span-1 px-2 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
-        >
-          <option value={30}>30 يوم</option>
-          <option value={90}>90 يوم</option>
-          <option value={365}>سنة</option>
-          <option value={0}>دائم</option>
-        </select>
+      {/* Sub-navigation between Tool Access Toggle Manager and User Subscriptions */}
+      <div className="flex flex-wrap gap-2">
         <button
-          type="submit"
-          disabled={Boolean(savingUid)}
-          className="md:col-span-2 py-2 px-3 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-lg transition cursor-pointer disabled:opacity-50"
+          type="button"
+          onClick={() => setOwnerConsoleTab('tools')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
+            ownerConsoleTab === 'tools'
+              ? 'bg-[#D4AF37] text-gray-950 border-[#D4AF37]'
+              : 'bg-gray-900 text-gray-300 border-gray-800 hover:border-gray-700'
+          }`}
         >
-          تفعيل الاشتراك
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          <span>التحكم بقفل وفتح الأدوات ({NAV_TABS_META.length})</span>
         </button>
-      </form>
+        <button
+          type="button"
+          onClick={() => setOwnerConsoleTab('users')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
+            ownerConsoleTab === 'users'
+              ? 'bg-[#D4AF37] text-gray-950 border-[#D4AF37]'
+              : 'bg-gray-900 text-gray-300 border-gray-800 hover:border-gray-700'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>اشتراكات المستخدمين ({usersList.length})</span>
+        </button>
+      </div>
 
-      {/* Registered Users Table */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-bold text-gray-300">
-            <Users className="w-4 h-4 text-[#D4AF37]" />
-            <span>المستخدمون المسجلون ({usersList.length})</span>
+      {ownerConsoleTab === 'tools' ? (
+        <div className="space-y-4">
+          <div className="p-3.5 rounded-xl bg-gray-900/90 border border-gray-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold tabular-nums">
+                مدفوعة لغير المشتركين: {paidToolsCount}
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold tabular-nums">
+                مجانية للجميع: {freeToolsCount}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={Boolean(savingToolId)}
+                onClick={() =>
+                  void persistPaidTabs(
+                    DEFAULT_PAID_TABS,
+                    '__reset__',
+                    'تمت استعادة الإعداد الافتراضي (الأدوات المتقدمة مقفلة لغير المشتركين).'
+                  )
+                }
+                className="px-3 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-700 text-gray-200 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>الوضع الافتراضي</span>
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(savingToolId)}
+                onClick={() =>
+                  void persistPaidTabs(
+                    [],
+                    '__unlock_all__',
+                    'تم فتح جميع أدوات المنصة مجاناً لكافة المستخدمين.'
+                  )
+                }
+                className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>فتح الكل مجاناً</span>
+              </button>
+            </div>
           </div>
-          <div className="relative w-full sm:w-64">
+
+          <div className="relative">
             <Search className="w-3.5 h-3.5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="بحث بالبريد أو UID..."
-              className="w-full pr-8 pl-3 py-1.5 bg-gray-900 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+              value={toolSearchTerm}
+              onChange={(e) => setToolSearchTerm(e.target.value)}
+              placeholder="تصفية الأدوات بالاسم أو المعرّف (مثل: YARA, PCAP, OSINT)..."
+              className="w-full pr-9 pl-3 py-2 bg-gray-900 border border-gray-800 rounded-xl text-xs text-white focus:border-[#D4AF37] outline-none"
             />
           </div>
+
+          <div className="space-y-4">
+            {NAV_GROUP_ORDER.map((groupId) => {
+              const groupTools = NAV_TABS_META.filter((t) => {
+                if (t.group !== groupId) return false;
+                if (!normalizedToolQuery) return true;
+                return (
+                  t.label.toLowerCase().includes(normalizedToolQuery) ||
+                  t.shortLabel.toLowerCase().includes(normalizedToolQuery) ||
+                  t.id.toLowerCase().includes(normalizedToolQuery)
+                );
+              });
+              if (groupTools.length === 0) return null;
+
+              return (
+                <div key={groupId} className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 bg-gray-900 border-b border-gray-800 flex items-center justify-between text-xs font-bold text-gray-200">
+                    <span>{groupTools[0].groupLabel}</span>
+                    <span className="text-[11px] text-gray-500 tabular-nums">{groupTools.length} أداة</span>
+                  </div>
+                  <div className="divide-y divide-gray-800/80">
+                    {groupTools.map((tool) => {
+                      const isProfile = tool.id === 'profile';
+                      const isPaid = accessState.isTabPaidForUsers(tool.id);
+                      const isBusy = savingToolId === tool.id || savingToolId === '__reset__' || savingToolId === '__unlock_all__';
+
+                      return (
+                        <div
+                          key={tool.id}
+                          className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-900/50 transition"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${
+                                isPaid
+                                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                              }`}
+                            >
+                              {renderTabIcon(tool.id, 'w-4 h-4')}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate">{tool.label}</div>
+                              <div className="text-[10px] font-mono text-gray-500" dir="ltr">{tool.id}</div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
+                            {isProfile ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 text-[10px] font-bold">
+                                مفتوح دائماً لإدارة الحساب
+                              </span>
+                            ) : (
+                              <>
+                                <span
+                                  className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 ${
+                                    isPaid
+                                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                                      : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                  }`}
+                                >
+                                  {isPaid ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                  <span>{isPaid ? 'مدفوعة (مقفلة لغير المشتركين)' : 'مجانية (مفتوحة للجميع)'}</span>
+                                </span>
+
+                                <button
+                                  type="button"
+                                  disabled={Boolean(savingToolId)}
+                                  onClick={() => toggleToolPaidStatus(tool.id, tool.label)}
+                                  className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                                    isPaid
+                                      ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-300'
+                                      : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/40 text-amber-300'
+                                  }`}
+                                >
+                                  {isBusy ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : isPaid ? (
+                                    <Unlock className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Lock className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>{isPaid ? 'فتح مجاناً' : 'قفل كمدفوعة'}</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Quick Grant Form by UID */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void grantSubscription(targetUid, targetEmail, selectedPlan, durationDays);
+            }}
+            className="grid grid-cols-1 md:grid-cols-12 gap-2.5 bg-gray-900 p-4 rounded-xl border border-gray-800"
+          >
+            <input
+              type="text"
+              dir="ltr"
+              value={targetUid}
+              onChange={(e) => setTargetUid(e.target.value)}
+              placeholder="Firebase User UID..."
+              className="md:col-span-4 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
+              required
+            />
+            <input
+              type="email"
+              dir="ltr"
+              value={targetEmail}
+              onChange={(e) => setTargetEmail(e.target.value)}
+              placeholder="البريد (اختياري)"
+              className="md:col-span-3 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
+            />
+            <select
+              value={selectedPlan}
+              onChange={(e) => setSelectedPlan(e.target.value as SubscriptionPlanId)}
+              className="md:col-span-2 px-2.5 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+            >
+              <option value="pro">Pro</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+            <select
+              value={durationDays}
+              onChange={(e) => setDurationDays(Number(e.target.value))}
+              className="md:col-span-1 px-2 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+            >
+              <option value={30}>30 يوم</option>
+              <option value={90}>90 يوم</option>
+              <option value={365}>سنة</option>
+              <option value={0}>دائم</option>
+            </select>
+            <button
+              type="submit"
+              disabled={Boolean(savingUid)}
+              className="md:col-span-2 py-2 px-3 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-lg transition cursor-pointer disabled:opacity-50"
+            >
+              تفعيل الاشتراك
+            </button>
+          </form>
 
-        {loading ? (
-          <div className="py-6 text-center text-xs text-gray-500 flex items-center justify-center gap-2">
-            <RefreshCw className="w-4 h-4 animate-spin text-[#D4AF37]" />
-            <span>جاري تحميل قائمة المستخدمين...</span>
-          </div>
-        ) : (
-          <div className="overflow-x-auto border border-gray-800 rounded-xl">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-gray-900 text-gray-400 border-b border-gray-800">
-                <tr>
-                  <th className="p-3">المستخدم</th>
-                  <th className="p-3">UID</th>
-                  <th className="p-3">الصلاحية / الاشتراك</th>
-                  <th className="p-3">إجراء</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800 bg-gray-950/60">
-                {filteredUsers.map((u) => {
-                  const sub = subsMap[u.uid];
-                  const isOwnerOrAdminRow =
-                    u.role === 'admin' ||
-                    OWNER_UIDS.has(u.uid) ||
-                    OWNER_EMAILS.has((u.email || '').trim().toLowerCase());
-                  const subActive = isSubscriptionActive(sub);
+          {/* Registered Users Table */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-gray-300">
+                <Users className="w-4 h-4 text-[#D4AF37]" />
+                <span>المستخدمون المسجلون ({usersList.length})</span>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="بحث بالبريد أو UID..."
+                  className="w-full pr-8 pl-3 py-1.5 bg-gray-900 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+                />
+              </div>
+            </div>
 
-                  return (
-                    <tr key={u.uid} className="hover:bg-gray-900/40">
-                      <td className="p-3">
-                        <div className="font-bold text-white">{u.displayName || 'مستخدم'}</div>
-                        <div className="text-[11px] font-mono text-gray-400" dir="ltr">{u.email}</div>
-                      </td>
-                      <td className="p-3 font-mono text-[11px] text-gray-400" dir="ltr">
-                        {u.uid.slice(0, 14)}...
-                      </td>
-                      <td className="p-3">
-                        {isOwnerOrAdminRow ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold">
-                            <Crown className="w-3 h-3" />
-                            مالك / Admin (معفى)
-                          </span>
-                        ) : subActive ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
-                            <CheckCircle2 className="w-3 h-3" />
-                            نشط ({sub?.plan.toUpperCase()})
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-gray-800 text-gray-400 text-[10px] font-bold">
-                            <Lock className="w-3 h-3" />
-                            مجاني (مقيد)
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {isOwnerOrAdminRow ? (
-                          <span className="text-[11px] text-gray-500">وصول دائم</span>
-                        ) : subActive ? (
-                          <button
-                            type="button"
-                            disabled={savingUid === u.uid}
-                            onClick={() => void revokeSubscription(u.uid)}
-                            className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                          >
-                            <Ban className="w-3 h-3" />
-                            إيقاف
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={savingUid === u.uid}
-                            onClick={() => void grantSubscription(u.uid, u.email, 'pro', 30)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                          >
-                            <UserCheck className="w-3 h-3" />
-                            تفعيل Pro (30 يوم)
-                          </button>
-                        )}
-                      </td>
+            {loading ? (
+              <div className="py-6 text-center text-xs text-gray-500 flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-[#D4AF37]" />
+                <span>جاري تحميل قائمة المستخدمين...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-gray-800 rounded-xl">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-gray-900 text-gray-400 border-b border-gray-800">
+                    <tr>
+                      <th className="p-3">المستخدم</th>
+                      <th className="p-3">UID</th>
+                      <th className="p-3">الصلاحية / الاشتراك</th>
+                      <th className="p-3">إجراء</th>
                     </tr>
-                  );
-                })}
-                {filteredUsers.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="p-6 text-center text-gray-500">
-                      لا يوجد مستخدمون مطابقون للبحث.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800 bg-gray-950/60">
+                    {filteredUsers.map((u) => {
+                      const sub = subsMap[u.uid];
+                      const isOwnerOrAdminRow =
+                        u.role === 'admin' ||
+                        OWNER_UIDS.has(u.uid) ||
+                        OWNER_EMAILS.has((u.email || '').trim().toLowerCase());
+                      const subActive = isSubscriptionActive(sub);
+
+                      return (
+                        <tr key={u.uid} className="hover:bg-gray-900/40">
+                          <td className="p-3">
+                            <div className="font-bold text-white">{u.displayName || 'مستخدم'}</div>
+                            <div className="text-[11px] font-mono text-gray-400" dir="ltr">{u.email}</div>
+                          </td>
+                          <td className="p-3 font-mono text-[11px] text-gray-400" dir="ltr">
+                            {u.uid.slice(0, 14)}...
+                          </td>
+                          <td className="p-3">
+                            {isOwnerOrAdminRow ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold">
+                                <Crown className="w-3 h-3" />
+                                مالك / Admin (معفى)
+                              </span>
+                            ) : subActive ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
+                                <CheckCircle2 className="w-3 h-3" />
+                                نشط ({sub?.plan.toUpperCase()})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-gray-800 text-gray-400 text-[10px] font-bold">
+                                <Lock className="w-3 h-3" />
+                                مجاني (مقيد)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            {isOwnerOrAdminRow ? (
+                              <span className="text-[11px] text-gray-500">وصول دائم</span>
+                            ) : subActive ? (
+                              <button
+                                type="button"
+                                disabled={savingUid === u.uid}
+                                onClick={() => void revokeSubscription(u.uid)}
+                                className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                <Ban className="w-3 h-3" />
+                                إيقاف
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={savingUid === u.uid}
+                                onClick={() => void grantSubscription(u.uid, u.email, 'pro', 30)}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                <UserCheck className="w-3 h-3" />
+                                تفعيل Pro (30 يوم)
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filteredUsers.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-6 text-center text-gray-500">
+                          لا يوجد مستخدمون مطابقون للبحث.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

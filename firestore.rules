@@ -123,6 +123,27 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // Platform Tool Access Configuration (Owner/Admin Controlled Paid/Free Tabs)
+    // =========================================================================
+    function isValidPlatformToolConfig(data) {
+      return data.keys().hasAll(['paidTabs', 'updatedAt'])
+        && data.keys().hasOnly(['paidTabs', 'updatedBy', 'updatedAt'])
+        && data.paidTabs is list
+        && data.paidTabs.size() <= 100
+        && (data.paidTabs.size() == 0 || (data.paidTabs[0] is string && data.paidTabs[0].size() <= 64))
+        && data.updatedAt is string && data.updatedAt.size() <= 64
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
+    }
+
+    match /platform_config/{configId} {
+      allow get: if isSignedIn() && isValidId(configId);
+      allow list: if false;
+      allow create: if isAdmin() && isValidId(configId) && isValidPlatformToolConfig(incoming());
+      allow update: if isAdmin() && isValidId(configId) && isValidPlatformToolConfig(incoming());
+      allow delete: if isAdmin() && isValidId(configId);
+    }
+
+    // =========================================================================
     // Forensic Investigations (Strict Tenant Ownership)
     // =========================================================================
     function isValidInvestigation(data) {

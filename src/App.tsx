@@ -1245,6 +1245,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [sidebarSearch, setSidebarSearch] = useState<string>('');
   const [userSubscription, setUserSubscription] = useState<UserSubscriptionRecord | null>(null);
   const [subscriptionLoaded, setSubscriptionLoaded] = useState<boolean>(false);
+  const [paidTabsConfig, setPaidTabsConfig] = useState<AppTabId[] | null>(null);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState<boolean>(false);
   const [lockedToolPromptTab, setLockedToolPromptTab] = useState<AppTabId | null>(null);
   const uiPrefsRef = React.useRef<UiPreferences>(uiPrefs);
@@ -1253,8 +1254,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   }, [uiPrefs]);
 
   const accessState = useMemo(
-    () => computeSovereignAccessState(user, userProfile, userSubscription, subscriptionLoaded),
-    [user, userProfile, userSubscription, subscriptionLoaded]
+    () => computeSovereignAccessState(user, userProfile, userSubscription, subscriptionLoaded, paidTabsConfig),
+    [user, userProfile, userSubscription, subscriptionLoaded, paidTabsConfig]
   );
 
   // Apply Theme (curated or 540+ procedural), Layout Structure, Font Scale & UI Density immediately to DOM
@@ -1465,6 +1466,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         setUserProfile(null);
         setUserSubscription(null);
         setSubscriptionLoaded(false);
+        setPaidTabsConfig(null);
         setShowSubscriptionModal(false);
       }
       setAuthReady(true);
@@ -1666,6 +1668,27 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       }
     );
 
+    const toolAccessPath = 'platform_config/tool_access';
+    const unsubToolAccess = onSnapshot(
+      doc(db, 'platform_config', 'tool_access'),
+      (cfgSnap) => {
+        if (cfgSnap.exists()) {
+          const rawPaidTabs = cfgSnap.data()?.paidTabs;
+          if (Array.isArray(rawPaidTabs)) {
+            setPaidTabsConfig(rawPaidTabs.filter((id): id is AppTabId => typeof id === 'string'));
+            return;
+          }
+        }
+        setPaidTabsConfig(null);
+      },
+      (error) => {
+        console.warn('Tool access config snapshot error:', error);
+        try {
+          handleFirestoreError(error, OperationType.GET, toolAccessPath);
+        } catch {}
+      }
+    );
+
     return () => {
       unsubInvestigations();
       unsubEvidence();
@@ -1673,6 +1696,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       unsubCustodyLedger();
       unsubReports();
       unsubSubscription();
+      unsubToolAccess();
     };
   }, [isCloudAuthenticated, user?.uid]);
 
@@ -6184,6 +6208,23 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 <Wifi className={`w-3.5 h-3.5 ${networkInfo.online ? 'text-[#10B981]' : 'text-red-500'}`} />
                 <span>{networkInfo.online ? networkInfo.type : 'غير متصل'}</span>
               </div>
+
+              {accessState.isAdminOrOwner && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectTab('profile');
+                    window.setTimeout(() => {
+                      document.getElementById('owner-management-console')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 80);
+                  }}
+                  title="لوحة إدارة المالك: قفل أو فتح أي أداة مجاناً/مدفوعاً وإدارة الاشتراكات"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-[11px] transition cursor-pointer shrink-0"
+                >
+                  <Crown className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">إدارة المالك</span>
+                </button>
+              )}
 
               <button 
                 onClick={() => handleSelectTab('profile')}

@@ -1,9 +1,9 @@
 import type { User } from 'firebase/auth';
-import type { AppTabId } from '../components/LayoutCustomizer';
+import { NAV_TABS_META, type AppTabId } from '../components/LayoutCustomizer';
 
 /**
- * Platform Owner / Administrator identities that are automatically exempt
- * from all subscription restrictions and receive unrestricted access to every lab.
+ * Platform Owner / Developer / Administrator identities that are automatically
+ * exempt from all subscription restrictions and receive unrestricted access to every tool.
  */
 export const OWNER_EMAILS: ReadonlySet<string> = new Set([
   'ivywcusel@gmail.com',
@@ -36,9 +36,7 @@ export interface AccessUserProfileLike {
 }
 
 /**
- * Core free tools accessible to any authenticated user without a paid subscription.
- * All specialized forensic labs, SOC dashboards, OSINT, and AI Voice Core require
- * an active Firestore subscription (unless the user is the Platform Owner or Admin).
+ * Core free tools by default when no custom Firestore tool_access override exists.
  */
 export const FREE_CORE_TABS: ReadonlySet<AppTabId> = new Set<AppTabId>([
   'dashboard',
@@ -48,6 +46,14 @@ export const FREE_CORE_TABS: ReadonlySet<AppTabId> = new Set<AppTabId>([
   'profile',
   'samples',
 ]);
+
+/**
+ * Default list of tools classified as paid/locked for non-subscribed users.
+ * Owner can override this dynamically in Firestore (`platform_config/tool_access`).
+ */
+export const DEFAULT_PAID_TABS: AppTabId[] = NAV_TABS_META
+  .map((t) => t.id)
+  .filter((id) => !FREE_CORE_TABS.has(id));
 
 export function resolveNormalizedUserEmail(user: User | null | undefined, profile?: AccessUserProfileLike | null): string {
   const candidates = [
@@ -132,6 +138,8 @@ export interface SovereignAccessState {
   effectiveRoleLabel: string;
   subscription: UserSubscriptionRecord | null;
   subscriptionLoaded: boolean;
+  activePaidTabs: ReadonlySet<AppTabId>;
+  isTabPaidForUsers: (tabId: AppTabId) => boolean;
   isTabLocked: (tabId: AppTabId) => boolean;
 }
 
@@ -148,7 +156,8 @@ export function computeSovereignAccessState(
   user: User | null | undefined,
   profile: AccessUserProfileLike | null | undefined,
   subscription: UserSubscriptionRecord | null | undefined,
-  subscriptionLoaded: boolean
+  subscriptionLoaded: boolean,
+  paidTabsOverride?: readonly AppTabId[] | null
 ): SovereignAccessState {
   const isOwnerUid = isOwnerUidAccount(user, profile);
   const isOwnerEmail = isOwnerEmailAccount(user, profile);
@@ -157,6 +166,12 @@ export function computeSovereignAccessState(
   const subRecord = subscription || null;
   const hasActiveSub = isSubscriptionActive(subRecord);
   const hasFullAccess = isAdminOrOwner || hasActiveSub;
+
+  const activePaidTabs = new Set<AppTabId>(
+    (paidTabsOverride !== undefined && paidTabsOverride !== null ? paidTabsOverride : DEFAULT_PAID_TABS).filter(
+      (id) => id !== 'profile'
+    )
+  );
 
   let effectivePlanLabel = 'الخطة المجانية (أدوات أساسية)';
   if (isOwnerIdentity) {
@@ -195,9 +210,12 @@ export function computeSovereignAccessState(
     effectiveRoleLabel,
     subscription: subRecord,
     subscriptionLoaded,
+    activePaidTabs,
+    isTabPaidForUsers: (tabId: AppTabId) => tabId !== 'profile' && activePaidTabs.has(tabId),
     isTabLocked: (tabId: AppTabId) => {
       if (hasFullAccess) return false;
-      return !FREE_CORE_TABS.has(tabId);
+      if (tabId === 'profile') return false;
+      return activePaidTabs.has(tabId);
     },
   };
 }
