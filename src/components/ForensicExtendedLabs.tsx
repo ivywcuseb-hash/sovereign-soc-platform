@@ -386,7 +386,7 @@ export const EmailSecurityDnsAuditorLab: React.FC<ExtendedLabProps> = ({
         sha256: `DOH-GOOGLE-${domain.toUpperCase()}`,
       });
     } catch (err: any) {
-      setError(err?.message || 'تعذر تنفيذ استعلام Google DNS-over-HTTPS.');
+      setError(err?.message || 'تعذر الاتصال بخدمة Google DNS-over-HTTPS؛ تحقق من اتصال الإنترنت واسم النطاق وأعد المحاولة.');
       onNotify('فشل تدقيق سجلات DNS', 'error');
     } finally {
       setLoading(false);
@@ -395,18 +395,17 @@ export const EmailSecurityDnsAuditorLab: React.FC<ExtendedLabProps> = ({
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="rounded-3xl bg-gray-900/95 border border-[#D4AF37]/30 p-6 shadow-2xl space-y-5">
+      <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] font-mono text-[#D4AF37]">
-              <MailCheck className="w-3.5 h-3.5" />
-              <span>GOOGLE DNS-OVER-HTTPS • SPF / DMARC / MX / DKIM AUDITOR</span>
+          <div className="space-y-1">
+            <div className="text-xs font-mono text-[#D4AF37]">
+              DNS-over-HTTPS · SPF / DMARC / MX / DKIM
             </div>
             <h2 className="text-xl font-bold text-white">
-              فاحص أمان النطاقات والبريد الإلكتروني (Email Security & DNS Auditor)
+              فحص أمان النطاقات والبريد (DNS / SPF)
             </h2>
-            <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-              استعلام حي ومباشر عبر خوادم Google DoH لفحص سجلات MX وSPF وDMARC ومفاتيح DKIM وتقييم قابلية النطاق لانتحال البريد الإلكتروني (Spoofing / Phishing).
+            <p className="text-xs text-gray-400">
+              استعلام مباشر عبر Google DoH لسجلات MX وSPF وDMARC وDKIM وتقييم الحماية من انتحال البريد.
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -1008,7 +1007,7 @@ export const YaraPatternScannerLab: React.FC<ExtendedLabProps> = ({
         sha256,
       });
     } catch (err: any) {
-      setError(err?.message || 'تعذر مسح الملف بقواعد YARA.');
+      setError(err?.message || 'تعذر قراءة الملف أو تطبيق قواعد YARA؛ تأكد من صحة صياغة القاعدة والملف.');
     } finally {
       setScanning(false);
     }
@@ -1016,18 +1015,17 @@ export const YaraPatternScannerLab: React.FC<ExtendedLabProps> = ({
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="rounded-3xl bg-gray-900/95 border border-[#D4AF37]/30 p-6 shadow-2xl space-y-5">
+      <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] font-mono text-[#D4AF37]">
-              <FileCode2 className="w-3.5 h-3.5" />
-              <span>IN-BROWSER BINARY & STRING SIGNATURE ENGINE • YARA SCANNER</span>
+          <div className="space-y-1">
+            <div className="text-xs font-mono text-[#D4AF37]">
+              Binary & String Pattern Scanner · YARA
             </div>
             <h2 className="text-xl font-bold text-white">
-              ماسح قواعد YARA للملفات (YARA Pattern Scanner)
+              ماسح قواعد YARA للملفات
             </h2>
-            <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-              محرك فحص محلي بالكامل يفحص بايتات ونصوص الملف المرفوع فعلياً لمطابقة قواعد YARA (نصوص، أنماط Hex ببدائل <span className="font-mono text-gray-300">??</span>، وتعبيرات Regex) مع تحديد الإزاحات الدقيقة بالملف.
+            <p className="text-xs text-gray-400">
+              فحص بايتات الملف محلياً لمطابقة القواعد النصية وأنماط Hex (<span className="font-mono text-gray-300">??</span>) وRegex مع إظهار الإزاحات.
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -1386,24 +1384,23 @@ export const JwtTokenForensicInspectorLab: React.FC<ExtendedLabProps> = ({
       });
       onNotify('تم فك ترميز Base64 بنجاح.', 'success');
     } catch {
-      setError('تعذر فك الترميز؛ تأكد من صحة صيغة التوكن (JWT ثلاثي المقاطع أو Base64 سليم).');
+      setError('تعذر فك الترميز؛ تأكد من إدخال توكن JWT ثلاثي المقاطع (header.payload.sig) أو نص Base64 سليم دون فراغات.');
     }
   };
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="rounded-3xl bg-gray-900/95 border border-[#D4AF37]/30 p-6 shadow-2xl space-y-5">
+      <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] font-mono text-[#D4AF37]">
-              <KeyRound className="w-3.5 h-3.5" />
-              <span>CLIENT-SIDE ZERO-LEAK JWT & BASE64 TOKEN INSPECTOR</span>
+          <div className="space-y-1">
+            <div className="text-xs font-mono text-[#D4AF37]">
+              Client-Side Token Forensics · JWT / Base64
             </div>
             <h2 className="text-xl font-bold text-white">
-              محلل رموز التوثيق (JWT & Token Forensic Inspector)
+              محلل رموز التوثيق (JWT)
             </h2>
-            <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-              يفك تشفير ترميز التوكنات محلياً 100% دون إرسالها لأي خادم خارجي، ويعرض الترويسة (Header) والمحتوى (Payload) والصلاحية الفعلية، مع تدقيق ثغرات <span className="font-mono text-gray-300">alg:none</span> و<span className="font-mono text-gray-300">kid/jku</span> والتحقق الفعلي من توقيع HMAC.
+            <p className="text-xs text-gray-400">
+              فك الترميز محلياً وعرض Header وPayload وفحص الصلاحية والثغرات والتحقق من توقيع HMAC.
             </p>
           </div>
           <button
@@ -1932,7 +1929,7 @@ export const PcapPacketInspectorLab: React.FC<ExtendedLabProps> = ({
         sha256,
       });
     } catch (err: any) {
-      setError(err?.message || 'فشل تحليل ملف PCAP.');
+      setError(err?.message || 'تعذر تحليل الملف؛ تأكد من أنه ملف التقاط شبكة بصيغة .pcap أو .pcapng سليمة.');
     } finally {
       setLoading(false);
     }
@@ -1957,18 +1954,17 @@ export const PcapPacketInspectorLab: React.FC<ExtendedLabProps> = ({
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="rounded-3xl bg-gray-900/95 border border-[#D4AF37]/30 p-6 shadow-2xl space-y-5">
+      <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] font-mono text-[#D4AF37]">
-              <Network className="w-3.5 h-3.5" />
-              <span>IN-BROWSER ARRAYBUFFER DISSECTOR • LIBPCAP & PCAPNG</span>
+          <div className="space-y-1">
+            <div className="text-xs font-mono text-[#D4AF37]">
+              Packet Dissector · libpcap / pcapng
             </div>
             <h2 className="text-xl font-bold text-white">
-              محلل حزم الشبكة (PCAP Packet Inspector)
+              محلل حزم الشبكة (PCAP)
             </h2>
-            <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-              قراءة وتحليل ثنائي مباشر لملفات التقاط الشبكة الحقيقية (<span className="font-mono text-gray-300">.pcap</span> / <span className="font-mono text-gray-300">.pcapng</span>) عبر <span className="font-mono text-gray-300">ArrayBuffer</span> لاستخراج الحزم، البروتوكولات، عناوين IP المصدر والوجهة، استعلامات DNS، ومضيفات HTTP محلياً.
+            <p className="text-xs text-gray-400">
+              قراءة ملفات .pcap و.pcapng محلياً لاستخراج الحزم والبروتوكولات وعناوين IP وطلبات DNS وHTTP.
             </p>
           </div>
         </div>

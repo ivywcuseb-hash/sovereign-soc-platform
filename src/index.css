@@ -347,13 +347,42 @@
 /* Multi-Panel Dashboard Grid Cell Polish */
 .sovereign-multi-grid > div {
   min-width: 0;
-  border-radius: 1.5rem;
+  border-radius: 1rem;
   border: 1px solid var(--sov-border);
   background-color: rgba(11, 15, 25, 0.55);
   padding: 1rem;
-  box-shadow: 0 20px 35px -15px rgba(0, 0, 0, 0.65);
+  box-shadow: none;
   overflow-x: auto;
 }
+
+/* Unified Engineering Surface, Radius, Border & Tabular Typography Polish */
+.font-mono,
+main table th,
+main table td {
+  font-variant-numeric: tabular-nums;
+}
+
+main .rounded-3xl {
+  border-radius: 1rem;
+}
+
+main .shadow-2xl,
+main .shadow-xl {
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.65);
+}
+
+main .border-2:not(.border-dashed) {
+  border-width: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 
 
 

@@ -145,54 +145,64 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   updatedAt: new Date().toISOString(),
 };
 
+export type NavGroupId = 'command' | 'files' | 'network' | 'security' | 'system';
+
+export const NAV_GROUP_ORDER: readonly NavGroupId[] = ['command', 'files', 'network', 'security', 'system'];
+
 export interface NavTabMeta {
   id: AppTabId;
   label: string;
   shortLabel: string;
-  group: 'command' | 'labs' | 'evidence' | 'system';
+  group: NavGroupId;
   groupLabel: string;
 }
 
 export const NAV_TABS_META: NavTabMeta[] = [
+  // 1. القيادة والمراقبة
   { id: 'dashboard', label: 'لوحة التحكم', shortLabel: 'الرئيسية', group: 'command', groupLabel: 'القيادة والمراقبة' },
-  { id: 'cyber_telemetry', label: 'مراقبة تدفق الشبكة (SOC)', shortLabel: 'تدفق الشبكة', group: 'command', groupLabel: 'القيادة والمراقبة' },
-  { id: 'vuln_kev_dashboard', label: 'إدارة الثغرات (KEV & EPSS)', shortLabel: 'ثغرات KEV', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'cyber_telemetry', label: 'مراقبة تدفق الشبكة', shortLabel: 'تدفق الشبكة', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'vuln_kev_dashboard', label: 'الثغرات المستغلة (KEV)', shortLabel: 'ثغرات KEV', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'asset_os_dashboard', label: 'الأصول وأنظمة التشغيل', shortLabel: 'توزيع الأصول', group: 'command', groupLabel: 'القيادة والمراقبة' },
-  { id: 'live_voice', label: 'المحادثة الصوتية الحية', shortLabel: 'الصوت الحي', group: 'command', groupLabel: 'القيادة والمراقبة' },
-  { id: 'live_feeds', label: 'التغذيات الحية', shortLabel: 'التغذيات', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'live_feeds', label: 'التغذيات الأمنية الحية', shortLabel: 'التغذيات', group: 'command', groupLabel: 'القيادة والمراقبة' },
   { id: 'audit', label: 'سجل العمليات', shortLabel: 'السجل', group: 'command', groupLabel: 'القيادة والمراقبة' },
-  { id: 'reports', label: 'التقارير الموثقة', shortLabel: 'التقارير', group: 'command', groupLabel: 'القيادة والمراقبة' },
+  { id: 'reports', label: 'التقارير الرسمية', shortLabel: 'التقارير', group: 'command', groupLabel: 'القيادة والمراقبة' },
 
-  { id: 'analyzer', label: 'وحدة التحليل الرقمي', shortLabel: 'التحليل', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'apk', label: 'تحليل APK', shortLabel: 'APK', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'browser', label: 'سجل المتصفح (SQLite)', shortLabel: 'المتصفح', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'threat_intel', label: 'الاستخبارات العالمية', shortLabel: 'الاستخبارات', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'deobfuscator', label: 'فك تشويه السكربتات', shortLabel: 'السكربتات', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'binary_lab', label: 'تحليل الباينري (PE/ELF)', shortLabel: 'الباينري', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'parser', label: 'محلل السجلات (IoC)', shortLabel: 'السجلات IoC', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  // 2. تحليل الملفات والوسائط
+  { id: 'analyzer', label: 'تحليل الملفات الشامل', shortLabel: 'تحليل الملفات', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'hex', label: 'عارض البايتات (Hex)', shortLabel: 'Hex', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'ela', label: 'فحص تلاعب الصور (ELA)', shortLabel: 'ELA', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'steg_inspector', label: 'كاشف الإخفاء (LSB)', shortLabel: 'إخفاء الصور', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'pdf_forensics', label: 'محلل مستندات PDF', shortLabel: 'مستندات PDF', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'archive_extractor', label: 'فحص الأرشيف (ZIP)', shortLabel: 'الأرشيف', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'binary_lab', label: 'تحليل الباينري (PE/ELF)', shortLabel: 'الباينري', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'apk', label: 'تحليل حزم APK', shortLabel: 'APK', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'yara_scanner', label: 'ماسح قواعد YARA', shortLabel: 'ماسح YARA', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'comparison', label: 'مقارنة الأدلة', shortLabel: 'المقارنة', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
 
-  { id: 'evidence', label: 'إدارة الأدلة', shortLabel: 'الأدلة', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'custody', label: 'سلسلة الحيازة', shortLabel: 'الحيازة', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'ela', label: 'تحليل التلاعب (ELA)', shortLabel: 'ELA', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'hex', label: 'فحص البايتات (Hex)', shortLabel: 'Hex', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'comparison', label: 'مقارنة الأدلة', shortLabel: 'المقارنة', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'email', label: 'تحليل البريد', shortLabel: 'البريد', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'clipboard', label: 'الحافظة', shortLabel: 'الحافظة', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'search', label: 'الاستخبارات (OSINT)', shortLabel: 'OSINT', group: 'evidence', groupLabel: 'الأدلة والتحقيق التخصصي' },
-  { id: 'breach_lookup', label: 'فحص التسريبات (Breach)', shortLabel: 'التسريبات', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'archive_extractor', label: 'تحليل الأرشيف (ZIP)', shortLabel: 'الأرشيف', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'ssl_inspector', label: 'فحص شهادات SSL/TLS', shortLabel: 'SSL/TLS', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'ip_mapper', label: 'خريطة الـ IP والتهديدات', shortLabel: 'خريطة IP', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'malware_hash', label: 'فاحص بصمات الفيروسات', shortLabel: 'Malware Hash', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'pdf_forensics', label: 'محلل المستندات (PDF)', shortLabel: 'مستندات PDF', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'url_tracer', label: 'متتبع الروابط المختصرة', shortLabel: 'تتبع الروابط', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'steg_inspector', label: 'كاشف الإخفاء (LSB Steg)', shortLabel: 'إخفاء الصور', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'dns_email_auditor', label: 'فاحص أمان النطاقات والبريد (DNS)', shortLabel: 'فاحص DNS/SPF', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'yara_scanner', label: 'ماسح قواعد YARA للملفات', shortLabel: 'ماسح YARA', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'jwt_inspector', label: 'محلل رموز التوثيق (JWT/Token)', shortLabel: 'محلل JWT', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
-  { id: 'pcap_inspector', label: 'محلل حزم الشبكة (PCAP)', shortLabel: 'محلل PCAP', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  // 3. الشبكات والاستخبارات
+  { id: 'dns_email_auditor', label: 'أمان النطاقات (DNS/SPF)', shortLabel: 'فحص DNS/SPF', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'email', label: 'تحليل ترويسة البريد', shortLabel: 'البريد', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'ssl_inspector', label: 'فحص شهادات SSL/TLS', shortLabel: 'SSL/TLS', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'url_tracer', label: 'متتبع تحويلات الروابط', shortLabel: 'تتبع الروابط', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'ip_mapper', label: 'خريطة وتحديد موقع IP', shortLabel: 'خريطة IP', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'pcap_inspector', label: 'محلل حزم الشبكة (PCAP)', shortLabel: 'محلل PCAP', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'threat_intel', label: 'استخبارات التهديدات', shortLabel: 'الاستخبارات', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'search', label: 'البحث المفتوح (OSINT)', shortLabel: 'OSINT', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'browser', label: 'سجل المتصفح (SQLite)', shortLabel: 'المتصفح', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'parser', label: 'استخراج المؤشرات (IoC)', shortLabel: 'محلل IoC', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
 
-  { id: 'profile', label: 'الحساب والإعدادات', shortLabel: 'الحساب', group: 'system', groupLabel: 'النظام والهوية' },
+  // 4. الأدلة والهوية والبرمجيات
+  { id: 'evidence', label: 'مخزن الأدلة الرقمية', shortLabel: 'الأدلة', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'custody', label: 'سلسلة الحيازة', shortLabel: 'الحيازة', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'clipboard', label: 'فحص الحافظة', shortLabel: 'الحافظة', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'breach_lookup', label: 'فحص التسريبات', shortLabel: 'التسريبات', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'malware_hash', label: 'فحص بصمات الفيروسات', shortLabel: 'فحص Hash', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'deobfuscator', label: 'فك تشويه السكربتات', shortLabel: 'السكربتات', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'jwt_inspector', label: 'محلل رموز التوثيق (JWT)', shortLabel: 'محلل JWT', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+
+  // 5. المساعد والنظام
+  { id: 'live_voice', label: 'المساعد الذكي والصوتي', shortLabel: 'المساعد الحي', group: 'system', groupLabel: 'المساعد والنظام' },
+  { id: 'profile', label: 'الحساب والإعدادات', shortLabel: 'الحساب', group: 'system', groupLabel: 'المساعد والنظام' },
 ];
 
 export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {

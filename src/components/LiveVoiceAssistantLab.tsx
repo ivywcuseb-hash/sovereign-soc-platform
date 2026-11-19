@@ -940,18 +940,17 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
   return (
     <div className="space-y-6" dir="rtl">
       {/* Header Banner */}
-      <div className="rounded-3xl bg-gray-900/95 border border-[#D4AF37]/30 p-6 shadow-2xl">
+      <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[11px] font-mono text-[#D4AF37]">
-              <AudioLines className="w-3.5 h-3.5" />
-              <span>GEMINI LIVE VOICE + REAL-TIME SITE DATA ENGINE</span>
+          <div className="space-y-1">
+            <div className="text-xs font-mono text-[#D4AF37]">
+              Voice & Text Analyst · Site Data Connected
             </div>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2.5">
-              <span>المحادثة الصوتية الحية (Sovereign Live Voice Core)</span>
+            <h2 className="text-xl font-bold text-white">
+              المساعد الذكي والصوتي المباشر
             </h2>
-            <p className="text-xs text-gray-400 leading-relaxed max-w-2xl">
-              محادثة صوتية ونصية متصلة مباشرة ببيانات موقعك الحقيقية (الأدلة، البصمات، القضايا، التغذيات الحية، وسجل العمليات)، مع استجابة صوتية منطوقة وفحص حي لمؤشرات OSINT.
+            <p className="text-xs text-gray-400 max-w-2xl">
+              محادثة صوتية ونصية متصلة ببيانات المنصة (الأدلة، القضايا، التغذيات الحية، وسجل العمليات) مع فحص مؤشرات OSINT.
             </p>
           </div>
 

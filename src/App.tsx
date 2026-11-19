@@ -87,6 +87,7 @@ import {
   LayoutCustomizerDrawer,
   DEFAULT_UI_PREFERENCES,
   NAV_TABS_META,
+  NAV_GROUP_ORDER,
   renderTabIcon,
   type UiPreferences,
   type AppTabId
@@ -632,7 +633,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
               await setDoc(profileRef, {
                 uid: auth.currentUser.uid,
                 email: auth.currentUser.email || '',
-                displayName: auth.currentUser.displayName || 'محقق سيادي',
+                displayName: auth.currentUser.displayName || 'محلل جنائي',
                 role: 'analyst',
                 createdAt: new Date().toISOString(),
                 settings: updatedSettings
@@ -654,12 +655,12 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         `settings-pin-${user?.uid || 'local'}`,
         'SETTINGS_CHANGE',
         hasUserPin ? 'تحديث الرمز السري لقفل الطوارئ (PIN)' : 'تفعيل وتشفير الرمز السري لقفل الطوارئ (PIN)',
-        'إعدادات الأمان السيادي - قفل الطوارئ',
+        'إعدادات الأمان - قفل الطوارئ',
         `تم تشفير رمز الحماية بخوارزمية SHA-256 وحفظ التوقيت (${updatedSettings.pinUpdatedAt}).`
       );
     } catch (err) {
       console.error('Save PIN error:', err);
-      setSetupError('حدث خطأ أثناء حفظ وتشفير رمز PIN.');
+      setSetupError('تعذر حفظ الرمز السري؛ تأكد من استقرار الاتصال وأعد المحاولة.');
     } finally {
       setIsSavingPin(false);
     }
@@ -669,11 +670,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryLogEntry[]>(() => {
     const ts = new Date().toISOString().slice(11, 19);
     return [
-      { id: 'init-1', timestamp: ts, subsystem: 'KERNEL', message: 'Kernel Status: Active — Sovereign Core Engine v3.5 initialized', level: 'ok' },
-      { id: 'init-2', timestamp: ts, subsystem: 'DAEMON', message: 'Neural-X Security Daemon & Threat Hunting Daemons listening on worker bus', level: 'ok' },
-      { id: 'init-3', timestamp: ts, subsystem: 'CRYPTO', message: 'Encryption: AES-256-GCM Active • WebCrypto SHA-256 Chain-of-Custody ready', level: 'ok' },
-      { id: 'init-4', timestamp: ts, subsystem: 'PARSER', message: 'Automated Parser Core v3.5 • Memory Cache: Optimized', level: 'info' },
-      { id: 'init-5', timestamp: ts, subsystem: 'GATEWAY', message: 'Secured API Gateway Connected • TLS 1.3 telemetry tunnel verified', level: 'ok' },
+      { id: 'init-1', timestamp: ts, subsystem: 'KERNEL', message: 'تهيئة بيئة التحليل الجنائي الرقمي بنجاح', level: 'ok' },
+      { id: 'init-2', timestamp: ts, subsystem: 'CRYPTO', message: 'محرك WebCrypto SHA-256 وسلسلة الحيازة جاهزان', level: 'ok' },
+      { id: 'init-3', timestamp: ts, subsystem: 'PARSER', message: 'محللات الملفات الثنائية والوسائط والشبكة نشطة محلياً', level: 'info' },
+      { id: 'init-4', timestamp: ts, subsystem: 'GATEWAY', message: 'بوابة الاتصال بالخادم مهيأة', level: 'ok' },
     ];
   });
   const appendTelemetryLog = (
@@ -837,9 +837,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [reportCaseNumber, setReportCaseNumber] = useState<string>(() => `SOV-CASE-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`);
   const [reportTitle, setReportTitle] = useState<string>('التقرير الجنائي الرقمي الموحد وتوثيق بصمات الأدلة');
   const [reportClassification, setReportClassification] = useState<ReportClassification>('CONFIDENTIAL');
-  const [reportDepartment, setReportDepartment] = useState<string>('وحدة الأدلة الجنائية الرقمية السيادية (SOC Forensics Lab)');
+  const [reportDepartment, setReportDepartment] = useState<string>('وحدة التحقيق الجنائي الرقمي');
   const [reportExaminerName, setReportExaminerName] = useState<string>('');
-  const [reportSummary, setReportSummary] = useState<string>('تم فحص الأدلة الرقمية المدرجة أدناه وحساب بصماتها التشفيرية SHA-256 والتحقق من ترويساتها الثنائية (Magic Bytes) وسلامة سلسلة الحيازة عبر مختبر المنصة السيادية.');
+  const [reportSummary, setReportSummary] = useState<string>('تم فحص الأدلة الرقمية المدرجة أدناه وحساب بصماتها التشفيرية SHA-256 والتحقق من ترويساتها الثنائية وسلامة سلسلة الحيازة.');
   const [reportSelectedEvidenceIds, setReportSelectedEvidenceIds] = useState<string[]>([]);
   const [reportIncludeEvidenceHashes, setReportIncludeEvidenceHashes] = useState<boolean>(true);
   const [reportIncludeExifEla, setReportIncludeExifEla] = useState<boolean>(true);
@@ -865,7 +865,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [custodyModalScope, setCustodyModalScope] = useState<'evidence' | 'global'>('evidence');
   const [custodyForm, setCustodyForm] = useState<{ action: string; location: string; notes: string; officerName: string }>({
     action: 'فحص البصمات والترويسة Magic Bytes',
-    location: 'مختبر الأدلة الرقمية السيادي - محطة SOC-01',
+    location: 'مختبر التحليل الرقمي',
     notes: '',
     officerName: ''
   });
@@ -4257,15 +4257,15 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
       notifyStatus(
         data.isSpyware
-          ? `تحذير أمني حرج: رصد سلوك تجسسي في ${staticData.fileName} وتم تحديث سجل التهديدات فوراً!`
-          : `اكتمل فحص ${staticData.fileName} عبر Neural-X Security Daemon وتم تحديث سجل العمليات.`,
+          ? `تنبيه: تم رصد سلوك تجسسي محتمل في ${staticData.fileName} وتحديث سجل التهديدات.`
+          : `اكتمل فحص ${staticData.fileName} وتحديث سجل العمليات.`,
         data.isSpyware ? 'error' : 'success'
       );
     } catch (err: any) {
-      console.error('APK Core Daemon evaluation failed:', err);
-      setApkError(err?.message || 'حدث خطأ أثناء تقييم حزمة APK عبر وحدة Sovereign Core Engine.');
+      console.error('APK evaluation failed:', err);
+      setApkError(err?.message || 'تعذر إتمام التقييم السحابي؛ البيانات المستخرجة محلياً من الملف معروضة أدناه.');
       setApkStage('error');
-      notifyStatus('تعذر إكمال التقييم السحابي — البيانات الثابتة المستخرجة معروضة أدناه.', 'warning');
+      notifyStatus('تعذر إكمال التقييم السحابي — النتائج المحلية متاحة بالأسفل.', 'warning');
     } finally {
       setApkAnalyzing(false);
     }
@@ -4380,7 +4380,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       const parsed = await safeReadJsonResponse(res);
       const data = parsed.data || {};
       if (!res.ok || !parsed.isJson) {
-        throw new Error(data.error || 'تعذر الحصول على تقييم Automated Parser Core لسجل التصفح.');
+        throw new Error(data.error || 'تعذر إتمام التقييم السحابي لسجل التصفح؛ يمكنك مراجعة الجداول المستخرجة محلياً.');
       }
 
       setBrowserAiReport(data);
@@ -4476,22 +4476,22 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       await recordCustodyLedgerBlock(
         `sqlite-${staticData.sha256.substring(0, 14)}`,
         'FILE_INSPECTION',
-        `تحليل سجل متصفح SQLite عبر Automated Parser Core (${staticData.fileName})`,
-        'مختبر استخراج قواعد بيانات المتصفحات',
+        `تحليل سجل متصفح SQLite (${staticData.fileName})`,
+        'مختبر سجل المتصفح',
         `المحرك: ${staticData.browserLabel} | الروابط: ${staticData.totalUrlsCount} | الزيارات: ${staticData.totalVisitsCount} | مواقع مشبوهة: ${suspiciousCount} | الخطورة: ${data.riskLevel}`
       );
 
       notifyStatus(
         isThreat
-          ? `تنبيه أمني: رصد محرك Threat Hunting عدد (${suspiciousCount}) موقع مشبوه في ${staticData.fileName} وتم تحديث عدادات التهديدات فوراً!`
-          : `اكتمل فحص قاعدة بيانات المتصفح ${staticData.fileName} بنجاح وتم تحديث السجل.`,
+          ? `تنبيه: رُصد (${suspiciousCount}) رابط مشبوه في ${staticData.fileName} وتم تحديث السجل.`
+          : `اكتمل فحص قاعدة بيانات المتصفح ${staticData.fileName} بنجاح.`,
         isThreat ? 'error' : 'success'
       );
     } catch (err: any) {
-      console.error('Browser History Daemon Error:', err);
-      setBrowserError(err?.message || 'حدث خطأ أثناء تقييم سجل التصفح عبر وحدة Automated Parser Core.');
+      console.error('Browser History evaluation error:', err);
+      setBrowserError(err?.message || 'تعذر التقييم السحابي لسجل التصفح؛ السجلات المستخرجة محلياً معروضة أدناه.');
       setBrowserStage('error');
-      notifyStatus('تعذر إكمال الفحص المتقدم — بيانات SQLite المستخرجة معروضة أدناه.', 'warning');
+      notifyStatus('تعذر إكمال الفحص السحابي — بيانات SQLite المستخرجة معروضة أدناه.', 'warning');
     } finally {
       setBrowserAnalyzing(false);
     }
@@ -5393,13 +5393,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
       notifyStatus(
         isThreat
-          ? `تنبيه تنفيذي حرج: رصد (${data.threatClassification}) في ${staticData.fileName} وتحديث عداد التهديدات وسجل العمليات!`
-          : `اكتمل الفحص الثنائي للملف ${staticData.fileName} (${data.riskLevel}) وتم تحديث السجلات.`,
+          ? `تنبيه: رُصد مؤشر خطورة (${data.threatClassification}) في ${staticData.fileName}.`
+          : `اكتمل الفحص الثنائي للملف ${staticData.fileName} (${data.riskLevel}).`,
         isThreat ? 'error' : 'success'
       );
     } catch (err: any) {
-      console.error('Binary Lab Daemon Error:', err);
-      setBinaryLabError(err?.message || 'حدث خطأ أثناء تقييم الملف الثنائي عبر Sovereign Core Engine v3.5.');
+      console.error('Binary Lab error:', err);
+      setBinaryLabError(err?.message || 'تعذر إتمام التحليل السحابي؛ نتائج الفحص المحلي معروضة أدناه.');
       setBinaryLabStage('error');
       notifyStatus('تعذر إكمال التحليل السحابي — نتائج الفحص الثنائي المحلي معروضة أدناه.', 'warning');
     } finally {
@@ -5770,10 +5770,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         briefingData = buildLocalLiveFeedsBriefing(liveFeedsResult.items as any);
       }
       setLiveFeedsBriefing(briefingData);
-      notifyStatus('تم إنشاء الموجز الاستخباراتي الحي عبر Sovereign SOC Correlation Daemon بنجاح.', 'success');
+      notifyStatus('تم تحديث الموجز الأمني للتغذيات الحية بنجاح.', 'success');
     } catch (err: any) {
-      setLiveFeedsError(err?.message || 'تعذر إنشاء الموجز الأمني من وحدة الربط الاستخباراتي.');
-      notifyStatus(err?.message || 'فشل إنشاء الموجز الأمني.', 'error');
+      setLiveFeedsError(err?.message || 'تعذر إنشاء الموجز الأمني؛ حاول إعادة المزامنة أولاً.');
+      notifyStatus(err?.message || 'تعذر إنشاء الموجز الأمني.', 'error');
     } finally {
       setLiveFeedsBriefingLoading(false);
     }
@@ -5945,175 +5945,61 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         />
       )}
 
-      {/* Top Sovereign System Bar with Real Device Telemetry & Firebase Auth */}
-      <header className={`sticky top-0 z-50 flex items-center justify-between gap-2 sm:gap-3 px-2.5 sm:px-4 md:px-6 ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'py-2' : 'py-2.5 sm:py-3'} bg-[#0b0f19]/95 backdrop-blur-md border-b border-gray-800 max-w-full`}>
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 xl:flex-none">
+      {/* Top Header */}
+      <header className={`sticky top-0 z-50 flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-5 md:px-6 ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'py-2' : 'py-2.5 sm:py-3'} bg-[#0b0f19]/95 backdrop-blur-md border-b border-gray-800 max-w-full`}>
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 xl:flex-none">
           {isSidebarMode && authReady && user && (
             <button
               type="button"
               onClick={() => setMobileSidebarOpen((v) => !v)}
-              className="lg:hidden p-1.5 sm:p-2 rounded-xl bg-gray-900 border border-gray-800 text-[#D4AF37] hover:bg-gray-800 transition cursor-pointer shrink-0"
+              className="lg:hidden p-1.5 sm:p-2 rounded-xl bg-gray-900 border border-gray-800 text-[#D4AF37] hover:bg-gray-800 transition-colors cursor-pointer shrink-0"
               aria-label="فتح القائمة الجانبية"
             >
               <Menu className="w-4 h-4" />
             </button>
           )}
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-lg shadow-[#D4AF37]/20 shrink-0">
-            <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-gray-950 font-bold" />
+          <div className="w-8 h-8 rounded-lg bg-[#D4AF37] flex items-center justify-center shrink-0">
+            <Shield className="w-4 h-4 text-gray-950" />
           </div>
-          <div className="min-w-0">
-            <span className="text-xs sm:text-base font-bold tracking-tight text-white block truncate">SOVEREIGN FORENSIC ENGINE</span>
-            <span className="hidden sm:block text-[9px] text-[#D4AF37] font-mono tracking-widest uppercase truncate">Core Engine v3.5 • Neural-X Security Daemon</span>
-          </div>
+          <span className="text-xs sm:text-sm md:text-base font-bold tracking-tight text-white whitespace-nowrap truncate">
+            SOVEREIGN FORENSIC ENGINE
+          </span>
         </div>
 
-        {/* Horizontal Top Navbar (Hidden until Google Auth completes & in Sidebar Modes on Desktop) */}
+        {/* Grouped Domain Navigation in Top Bar */}
         {authReady && user && (
           !isSidebarMode ? (
-            <nav className={`hidden xl:flex items-center ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'gap-2 text-xs' : 'gap-3 text-sm'} font-medium text-gray-300 overflow-x-auto max-w-full py-0.5`}>
-              <button onClick={() => handleSelectTab('dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <LayoutDashboard className="w-4 h-4" />
-                لوحة التحكم
-              </button>
-              <button onClick={() => handleSelectTab('analyzer')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('analyzer') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                وحدة التحليل الرقمي
-              </button>
-              <button onClick={() => handleSelectTab('evidence')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('evidence') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Briefcase className="w-4 h-4" />
-                إدارة الأدلة
-              </button>
-              <button onClick={() => handleSelectTab('custody')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('custody') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <History className="w-4 h-4" />
-                سلسلة الحيازة
-              </button>
-              <button onClick={() => handleSelectTab('email')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('email') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                تحليل البريد
-              </button>
-              <button onClick={() => handleSelectTab('clipboard')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('clipboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                الحافظة
-              </button>
-              <button onClick={() => handleSelectTab('search')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('search') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                الاستخبارات (OSINT)
-              </button>
-              <button onClick={() => handleSelectTab('ela')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ela') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                ELA
-              </button>
-              <button onClick={() => handleSelectTab('hex')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('hex') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                Hex
-              </button>
-              <button onClick={() => handleSelectTab('audit')} className={`transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('audit') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                سجل العمليات
-              </button>
-              <button onClick={() => handleSelectTab('comparison')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('comparison') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Diff className="w-4 h-4" />
-                مقارنة الأدلة
-              </button>
-              <button onClick={() => handleSelectTab('parser')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('parser') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Terminal className="w-4 h-4" />
-                محلل السجلات (IoC)
-              </button>
-              <button onClick={() => handleSelectTab('apk')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('apk') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Smartphone className="w-4 h-4" />
-                تحليل APK
-              </button>
-              <button onClick={() => handleSelectTab('browser')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('browser') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Database className="w-4 h-4" />
-                سجل المتصفح (SQLite)
-              </button>
-              <button onClick={() => handleSelectTab('threat_intel')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('threat_intel') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Globe className="w-4 h-4" />
-                الاستخبارات العالمية
-              </button>
-              <button onClick={() => handleSelectTab('deobfuscator')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('deobfuscator') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <FileCode className="w-4 h-4" />
-                فك تشويه السكربتات
-              </button>
-              <button onClick={() => handleSelectTab('binary_lab')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('binary_lab') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Cpu className="w-4 h-4" />
-                تحليل الباينري (PE/ELF)
-              </button>
-              <button onClick={() => handleSelectTab('live_feeds')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('live_feeds') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Activity className="w-4 h-4" />
-                التغذيات الحية
-                {liveFeedsAutoSync && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-              </button>
-              <button onClick={() => handleSelectTab('breach_lookup')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('breach_lookup') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <KeyRound className="w-4 h-4" />
-                فحص التسريبات
-              </button>
-              <button onClick={() => handleSelectTab('archive_extractor')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('archive_extractor') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <FolderArchive className="w-4 h-4" />
-                تحليل الأرشيف
-              </button>
-              <button onClick={() => handleSelectTab('ssl_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ssl_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Lock className="w-4 h-4" />
-                شهادات SSL/TLS
-              </button>
-              <button onClick={() => handleSelectTab('ip_mapper')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('ip_mapper') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <MapPin className="w-4 h-4" />
-                خريطة الـ IP
-              </button>
-              <button onClick={() => handleSelectTab('malware_hash')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('malware_hash') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Bug className="w-4 h-4" />
-                بصمات الفيروسات
-              </button>
-              <button onClick={() => handleSelectTab('pdf_forensics')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('pdf_forensics') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <FileCheck2 className="w-4 h-4" />
-                محلل PDF
-              </button>
-              <button onClick={() => handleSelectTab('url_tracer')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('url_tracer') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Route className="w-4 h-4" />
-                متتبع الروابط
-              </button>
-              <button onClick={() => handleSelectTab('steg_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('steg_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <ScanEye className="w-4 h-4" />
-                كاشف الإخفاء LSB
-              </button>
-              <button onClick={() => handleSelectTab('cyber_telemetry')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('cyber_telemetry') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Radar className="w-4 h-4" />
-                تدفق الشبكة SOC
-              </button>
-              <button onClick={() => handleSelectTab('vuln_kev_dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('vuln_kev_dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <ShieldAlert className="w-4 h-4" />
-                لوحة الثغرات KEV
-              </button>
-              <button onClick={() => handleSelectTab('asset_os_dashboard')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('asset_os_dashboard') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <PieChart className="w-4 h-4" />
-                توزيع الأصول والأنظمة
-              </button>
-              <button onClick={() => handleSelectTab('live_voice')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('live_voice') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <AudioLines className="w-4 h-4" />
-                المحادثة الصوتية الحية
-              </button>
-              <button onClick={() => handleSelectTab('dns_email_auditor')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('dns_email_auditor') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <MailCheck className="w-4 h-4" />
-                فاحص أمان DNS/SPF
-              </button>
-              <button onClick={() => handleSelectTab('yara_scanner')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('yara_scanner') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <FileCode2 className="w-4 h-4" />
-                ماسح YARA
-              </button>
-              <button onClick={() => handleSelectTab('jwt_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('jwt_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <KeyRound className="w-4 h-4" />
-                محلل JWT
-              </button>
-              <button onClick={() => handleSelectTab('pcap_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('pcap_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <Network className="w-4 h-4" />
-                محلل حزم PCAP
-              </button>
-              <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
-                <FileText className="w-4 h-4" />
-                التقارير الموثقة
-              </button>
+            <nav className={`hidden xl:flex items-center ${uiPrefs.layoutStructure === 'compact_dashboard' ? 'gap-4 text-xs' : 'gap-5 text-sm'} font-medium text-gray-400 shrink-0`}>
+              {NAV_GROUP_ORDER.map((groupKey) => {
+                const groupItems = NAV_TABS_META.filter((t) => t.group === groupKey);
+                if (groupItems.length === 0) return null;
+                const currentGroup = NAV_TABS_META.find((t) => t.id === activeTab)?.group || 'command';
+                const isGroupActive = currentGroup === groupKey;
+                return (
+                  <button
+                    key={groupKey}
+                    type="button"
+                    onClick={() => {
+                      if (!isGroupActive) {
+                        handleSelectTab(groupItems[0].id);
+                      }
+                    }}
+                    className={`whitespace-nowrap shrink-0 pb-1 border-b-2 transition-colors cursor-pointer ${
+                      isGroupActive
+                        ? 'text-[#D4AF37] border-[#D4AF37] font-bold'
+                        : 'border-transparent hover:text-white'
+                    }`}
+                  >
+                    {groupItems[0].groupLabel}
+                  </button>
+                );
+              })}
             </nav>
           ) : (
-            <div className="hidden xl:flex items-center gap-2 text-xs text-gray-300 bg-gray-900/80 border border-gray-800 px-3.5 py-1.5 rounded-xl">
+            <div className="hidden xl:flex items-center gap-2 text-xs text-gray-300 bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-xl">
               <span className="text-[#D4AF37]">{renderTabIcon(activeTab as AppTabId, 'w-4 h-4')}</span>
-              <span className="font-bold text-white">
+              <span className="font-bold text-white whitespace-nowrap">
                 {NAV_TABS_META.find((t) => t.id === activeTab)?.label || 'لوحة التحكم'}
-              </span>
-              <span className="text-[10px] text-gray-500 font-mono px-1.5 border-r border-gray-700">
-                {uiPrefs.layoutStructure === 'minimal_sidebar' ? 'MINIMAL RAIL' : 'SIDEBAR MODE'}
               </span>
             </div>
           )
@@ -6200,13 +6086,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
               {/* PWA / Android APK Install Button */}
               <PWAInstallButton />
 
-              {/* Site Update Status Pill & Quick Action */}
+              {/* Site Update Status & Action */}
               <button
                 onClick={() => update.hasUpdate ? update.setShowModal(true) : update.checkForUpdates(true)}
-                title={update.hasUpdate ? 'هذا الموقع يريد تحديث! انقر للتحديث الفوري' : 'فحص تحديثات الموقع'}
-                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                title={update.hasUpdate ? 'يتوفر تحديث جديد للمنصة' : 'فحص التحديثات'}
+                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
                   update.hasUpdate 
-                    ? 'bg-amber-950/80 border-[#D4AF37] text-[#D4AF37] animate-pulse font-bold shadow-lg shadow-[#D4AF37]/20' 
+                    ? 'bg-amber-950/70 border-[#D4AF37] text-[#D4AF37] font-bold' 
                     : 'bg-gray-900 border-gray-800 text-gray-300 hover:border-[#D4AF37]/50'
                 }`}
               >
@@ -6283,14 +6169,14 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 <div className="p-3 border-b border-gray-800 flex items-center justify-between gap-2">
                   {!effectiveSidebarCollapsed && (
                     <span className="text-xs font-bold text-[#D4AF37] tracking-wide truncate">
-                      مختبرات التحقيق السيادي
+                      مختبرات التحليل الجنائي
                     </span>
                   )}
                   <button
                     type="button"
                     onClick={() => updateUiPreferences({ sidebarCollapsed: !uiPrefs.sidebarCollapsed })}
                     title={effectiveSidebarCollapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
-                    className="p-2 rounded-xl bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-[#D4AF37] transition cursor-pointer mx-auto lg:mx-0"
+                    className="p-2 rounded-xl bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-[#D4AF37] transition-colors cursor-pointer mx-auto lg:mx-0"
                   >
                     {effectiveSidebarCollapsed ? (
                       <PanelRightOpen className="w-4 h-4" />
@@ -6310,7 +6196,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                       type="text"
                       value={sidebarSearch}
                       onChange={(e) => setSidebarSearch(e.target.value)}
-                      placeholder="بحث سريع عن مختبر..."
+                      placeholder="تصفية الأدوات..."
                       className="w-full pr-8 pl-3 py-1.5 bg-gray-900 border border-gray-800 rounded-xl text-xs text-white focus:border-[#D4AF37] outline-none"
                     />
                   </div>
@@ -6319,7 +6205,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
               {/* Grouped Navigation Items */}
               <div className="flex-1 overflow-y-auto p-2.5 space-y-4">
-                {(['command', 'labs', 'evidence', 'system'] as const).map((groupKey) => {
+                {NAV_GROUP_ORDER.map((groupKey) => {
                   const groupItems = NAV_TABS_META.filter(
                     (item) =>
                       item.group === groupKey &&
@@ -6332,7 +6218,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   return (
                     <div key={groupKey} className="space-y-1">
                       {!effectiveSidebarCollapsed && (
-                        <div className="px-2.5 py-1 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                        <div className="px-2.5 py-1 text-[11px] font-bold text-gray-500">
                           {groupItems[0].groupLabel}
                         </div>
                       )}
@@ -6346,7 +6232,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                             title={item.label}
                             className={`w-full flex items-center ${
                               effectiveSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3'
-                            } py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            } py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
                               isActive
                                 ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/40 font-bold'
                                 : 'text-gray-300 hover:bg-gray-900 hover:text-white border border-transparent'
@@ -6356,9 +6242,6 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                               <span className="shrink-0">{renderTabIcon(item.id, 'w-4 h-4')}</span>
                               {!effectiveSidebarCollapsed && <span className="truncate">{item.label}</span>}
                             </div>
-                            {!effectiveSidebarCollapsed && item.id === 'live_feeds' && liveFeedsAutoSync && (
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                            )}
                           </button>
                         );
                       })}
@@ -6385,45 +6268,55 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         }`}
       >
         
-        {/* Mobile Nav (always accessible on mobile/tablet after Google Sign-In) */}
-        {authReady && user && (
-          <div className={`flex ${isSidebarMode ? 'lg:hidden' : 'xl:hidden'} overflow-x-auto gap-2 pb-2 border-b border-gray-800`}>
-            <button onClick={() => handleSelectTab('dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الرئيسية</button>
-            <button onClick={() => handleSelectTab('analyzer')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('analyzer') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التحليل</button>
-            <button onClick={() => handleSelectTab('evidence')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('evidence') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الأدلة</button>
-            <button onClick={() => handleSelectTab('custody')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('custody') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>سلسلة الحيازة</button>
-            <button onClick={() => handleSelectTab('email')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('email') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>البريد</button>
-            <button onClick={() => handleSelectTab('clipboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('clipboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحافظة</button>
-            <button onClick={() => handleSelectTab('search')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('search') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>OSINT</button>
-            <button onClick={() => handleSelectTab('ela')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ela') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>ELA</button>
-            <button onClick={() => handleSelectTab('hex')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('hex') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>Hex</button>
-            <button onClick={() => handleSelectTab('audit')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('audit') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>السجل</button>
-            <button onClick={() => handleSelectTab('comparison')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('comparison') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>المقارنة</button>
-            <button onClick={() => handleSelectTab('parser')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('parser') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل السجلات</button>
-            <button onClick={() => handleSelectTab('apk')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('apk') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تحليل APK</button>
-            <button onClick={() => handleSelectTab('browser')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('browser') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>سجل المتصفح</button>
-            <button onClick={() => handleSelectTab('threat_intel')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('threat_intel') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الاستخبارات العالمية</button>
-            <button onClick={() => handleSelectTab('deobfuscator')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('deobfuscator') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>فك تشويه السكربتات</button>
-            <button onClick={() => handleSelectTab('binary_lab')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('binary_lab') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تحليل الباينري PE/ELF</button>
-            <button onClick={() => handleSelectTab('live_feeds')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('live_feeds') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التغذيات الحية</button>
-            <button onClick={() => handleSelectTab('breach_lookup')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('breach_lookup') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>فحص التسريبات</button>
-            <button onClick={() => handleSelectTab('archive_extractor')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('archive_extractor') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تحليل الأرشيف</button>
-            <button onClick={() => handleSelectTab('ssl_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ssl_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>شهادات SSL</button>
-            <button onClick={() => handleSelectTab('ip_mapper')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('ip_mapper') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>خريطة الـ IP</button>
-            <button onClick={() => handleSelectTab('malware_hash')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('malware_hash') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>بصمات الفيروسات</button>
-            <button onClick={() => handleSelectTab('pdf_forensics')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('pdf_forensics') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل PDF</button>
-            <button onClick={() => handleSelectTab('url_tracer')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('url_tracer') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>متتبع الروابط</button>
-            <button onClick={() => handleSelectTab('steg_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('steg_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>كاشف الإخفاء LSB</button>
-            <button onClick={() => handleSelectTab('cyber_telemetry')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('cyber_telemetry') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>تدفق الشبكة SOC</button>
-            <button onClick={() => handleSelectTab('vuln_kev_dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('vuln_kev_dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>ثغرات KEV</button>
-            <button onClick={() => handleSelectTab('asset_os_dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('asset_os_dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الأصول والأنظمة</button>
-            <button onClick={() => handleSelectTab('live_voice')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('live_voice') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الصوت الحي</button>
-            <button onClick={() => handleSelectTab('dns_email_auditor')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('dns_email_auditor') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>فاحص DNS/SPF</button>
-            <button onClick={() => handleSelectTab('yara_scanner')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('yara_scanner') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>ماسح YARA</button>
-            <button onClick={() => handleSelectTab('jwt_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('jwt_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل JWT</button>
-            <button onClick={() => handleSelectTab('pcap_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('pcap_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل PCAP</button>
-            <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
-            <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
+        {/* Organized Category & Tool Switcher Bar (for Top Nav + Mobile/Tablet) */}
+        {authReady && user && !isSidebarMode && (
+          <div className="space-y-2 pb-3 border-b border-gray-800">
+            {/* Domain Category Row (shown on tablet/mobile where header nav hides) */}
+            <div className="flex xl:hidden items-center gap-1.5 overflow-x-auto pb-1">
+              {NAV_GROUP_ORDER.map((groupKey) => {
+                const groupItems = NAV_TABS_META.filter((t) => t.group === groupKey);
+                if (groupItems.length === 0) return null;
+                const currentGroup = NAV_TABS_META.find((t) => t.id === activeTab)?.group || 'command';
+                const isGroupActive = currentGroup === groupKey;
+                return (
+                  <button
+                    key={groupKey}
+                    type="button"
+                    onClick={() => {
+                      if (!isGroupActive) handleSelectTab(groupItems[0].id);
+                    }}
+                    className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
+                      isGroupActive
+                        ? 'bg-[#D4AF37]/15 border-[#D4AF37]/50 text-[#D4AF37] font-bold'
+                        : 'bg-gray-900 border-gray-800 text-gray-300 hover:text-white'
+                    }`}
+                  >
+                    {groupItems[0].groupLabel}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Category Tools Row */}
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {NAV_TABS_META.filter(
+                (t) => t.group === (NAV_TABS_META.find((x) => x.id === activeTab)?.group || 'command')
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSelectTab(item.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
+                    isTabVisible(item.id)
+                      ? 'bg-[#D4AF37] border-[#D4AF37] text-gray-950 font-bold'
+                      : 'bg-gray-900/90 border-gray-800 text-gray-300 hover:border-gray-700 hover:text-white'
+                  }`}
+                >
+                  {renderTabIcon(item.id, 'w-3.5 h-3.5')}
+                  <span>{item.shortLabel}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -6505,29 +6398,29 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {!authReady ? (
           <div className="max-w-md mx-auto py-20">
-            <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl text-center space-y-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-2xl mx-auto">
-                <Lock className="w-8 h-8 text-gray-950 animate-pulse" />
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center space-y-4">
+              <div className="w-14 h-14 rounded-xl bg-[#D4AF37] flex items-center justify-center mx-auto">
+                <Lock className="w-7 h-7 text-gray-950" />
               </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">جاري التحقق من المصادقة</h2>
+              <h2 className="text-lg font-bold text-white">جاري التحقق من الجلسة</h2>
               <p className="text-gray-400 text-xs leading-relaxed">
-                يتم التحقق من جلسة حساب Google عبر Firebase Authentication...
+                يتم التحقق من حالة تسجيل الدخول عبر Firebase Authentication.
               </p>
             </div>
           </div>
         ) : !user ? (
-          <div className="max-w-md mx-auto py-12 space-y-8">
+          <div className="max-w-md mx-auto py-12 space-y-6">
             <div className="text-center space-y-2">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#D4AF37] to-[#10B981] flex items-center justify-center shadow-2xl mx-auto mb-6">
-                <Lock className="w-8 h-8 text-gray-950" />
+              <div className="w-14 h-14 rounded-xl bg-[#D4AF37] flex items-center justify-center mx-auto mb-5">
+                <Lock className="w-7 h-7 text-gray-950" />
               </div>
-              <h2 className="text-2xl font-bold text-white tracking-tight">نظام المصادقة السيادي</h2>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                تسجيل الدخول باستخدام حساب Google إلزامي للوصول إلى وحدة التحقيق الجنائي والأدلة الرقمية.
+              <h2 className="text-xl font-bold text-white">تسجيل الدخول</h2>
+              <p className="text-gray-400 text-xs leading-relaxed">
+                يلزم تسجيل الدخول بحساب Google للوصول إلى أدوات الفحص وسجل الأدلة.
               </p>
             </div>
 
-            <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl space-y-6">
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-5">
               <button
                 type="button"
                 onClick={handleGoogleLogin}
@@ -6927,10 +6820,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-white">
-                        مختبر الملفات التنفيذية والفحص الثنائي العميق (PE / ELF & Binary Headers)
+                        تحليل الملفات التنفيذية (PE / ELF)
                       </h3>
                       <p className="text-xs text-gray-400">
-                        تفكيك ترويسات PE/ELF والمقاطع والدوال المستوردة واستخراج النصوص الخفية عبر Sovereign Core Engine v3.5.
+                        قراءة ترويسات PE/ELF ومقاطع الذاكرة والدوال المستوردة والنصوص المستخرجة.
                       </p>
                     </div>
                   </div>
@@ -7576,7 +7469,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
                   {/* SOC Verdict & Forensic Report */}
                   <div className="rounded-2xl bg-gray-900 border border-gray-800 p-6 space-y-4">
-                    <h3 className="text-sm font-bold text-white">تقرير التحليل الجنائي السيادي (Binary & Structural Forensics)</h3>
+                    <h3 className="text-sm font-bold text-white">ملخص الفحص البنيوي والترويسة الثنائية</h3>
                     <p className="text-sm text-gray-300 leading-relaxed bg-gray-950 p-4 rounded-xl border border-gray-800">
                       {analysisResult.localReport.detailedReport}
                     </p>
@@ -11125,21 +11018,20 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 const dropped = e.dataTransfer.files?.[0];
                 if (dropped) handleApkForensicUpload(dropped);
               }}
-              className={`rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-950 border-2 p-8 shadow-2xl transition ${
+              className={`rounded-2xl bg-gray-900/95 border p-6 transition-colors ${
                 isDraggingApk ? 'border-[#D4AF37] bg-[#D4AF37]/5' : 'border-gray-800'
               }`}
             >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                <div className="space-y-3 max-w-3xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-xs font-mono">
-                    <Smartphone className="w-3.5 h-3.5" />
-                    ANDROID APK FORENSICS • BINARY AXML & DEX INSPECTOR + NEURAL-X SECURITY DAEMON v3.5
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="text-xs font-mono text-[#D4AF37]">
+                    Android APK Forensics · AXML & DEX
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">
-                    مختبر فحص وتحليل تطبيقات أندرويد (Android APK Forensics)
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
+                    فحص تطبيقات أندرويد (APK)
                   </h1>
-                  <p className="text-gray-400 text-sm leading-relaxed">
-                    تفكيك برمجي حقيقي لحزم <code className="text-[#D4AF37]">.apk</code> في بيئة معزولة لقراءة ملف <code className="text-emerald-400">AndroidManifest.xml</code> الثنائي (AXML) واستخراج الأذونات الحساسة وكافة الروابط (URLs) وعناوين الـ IP من ملفات التطبيق (<code className="text-gray-300">classes.dex</code> و <code className="text-gray-300">assets</code>)، ثم تقييمها عبر محرك Sovereign Core Engine v3.5 لكشف السلوك التجسسي (Spyware) وتحديث سجل التهديدات فوراً.
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    قراءة AndroidManifest.xml والأذونات الحساسة واستخراج الروابط وعناوين IP من حزم .apk.
                   </p>
                 </div>
 
@@ -11174,15 +11066,15 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             {apkAnalyzing && (
               <div className="rounded-2xl bg-gray-900 border border-[#D4AF37]/40 p-10 text-center space-y-4">
                 <RefreshCw className="w-10 h-10 text-[#D4AF37] animate-spin mx-auto" />
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-base font-bold text-white">
                   {apkStage === 'extracting'
-                    ? 'جاري تفكيك حزمة APK وقراءة AndroidManifest.xml وملفات DEX...'
-                    : 'جاري إرسال المؤشرات المستخرجة إلى وحدة Neural-X Security Daemon لتقييم السلوك التجسسي...'}
+                    ? 'جاري فك حزمة APK وقراءة AndroidManifest.xml...'
+                    : 'جاري تقييم المؤشرات المستخرجة...'}
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
                   {apkStage === 'extracting'
-                    ? 'JSZip Decompression • AXML Binary StringPool • SHA-256 • URL & IP Extraction'
-                    : 'Neural-X APK Security Daemon v3.5 • Telemetry Correlator • Real-time Threat Scoring'}
+                    ? 'JSZip · AXML StringPool · SHA-256'
+                    : 'استكمال التقييم السحابي للأذونات والروابط'}
                 </p>
               </div>
             )}
@@ -11634,21 +11526,20 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 const dropped = e.dataTransfer.files?.[0];
                 if (dropped) handleBrowserSqliteUpload(dropped);
               }}
-              className={`rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-950 border-2 p-8 shadow-2xl transition ${
+              className={`rounded-2xl bg-gray-900/95 border p-6 transition-colors ${
                 isDraggingBrowser ? 'border-[#D4AF37] bg-[#D4AF37]/5' : 'border-gray-800'
               }`}
             >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                <div className="space-y-3 max-w-3xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-xs font-mono">
-                    <Database className="w-3.5 h-3.5" />
-                    BROWSER HISTORY & SQLITE ARTIFACT EXTRACTOR • AUTOMATED PARSER CORE v3.5
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="text-xs font-mono text-[#D4AF37]">
+                    Browser SQLite Forensics
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">
-                    مختبر استخراج وتحليل قواعد بيانات المتصفحات (SQLite Browser Forensics)
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
+                    تحليل قواعد بيانات المتصفح (SQLite)
                   </h1>
-                  <p className="text-gray-400 text-sm leading-relaxed">
-                    قراءة مباشرة وفعلية لقواعد بيانات المتصفحات بصيغة SQLite3 مثل ملف <code className="text-[#D4AF37]">History</code> (Chrome / Edge / Brave)، و<code className="text-emerald-400">places.sqlite</code> (Firefox)، و<code className="text-blue-400">History.db</code> (Safari). يتم استخراج الجداول والروابط وتحويل تواريخ WebKit وPRTime وCocoa بدقة ثم إرسالها لوحدة Automated Parser Core لكشف المواقع المشبوهة وتحديث لوحة القيادة فوراً.
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    قراءة ملفات History وplaces.sqlite وHistory.db لاستخراج الزيارات والروابط وتحويل الطوابع الزمنية.
                   </p>
                 </div>
 
@@ -11683,15 +11574,15 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             {browserAnalyzing && (
               <div className="rounded-2xl bg-gray-900 border border-[#D4AF37]/40 p-10 text-center space-y-4">
                 <RefreshCw className="w-10 h-10 text-[#D4AF37] animate-spin mx-auto" />
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-base font-bold text-white">
                   {browserStage === 'extracting'
-                    ? 'جاري فتح قاعدة بيانات SQLite واستخراج الجداول والروابط وتواريخ الزيارات...'
-                    : 'جاري إرسال سجلات التصفح إلى Automated Parser Core لتحليل السلوك وكشف المواقع المشبوهة...'}
+                    ? 'جاري قراءة قاعدة بيانات SQLite واستخراج الجداول...'
+                    : 'جاري فحص الروابط المستخرجة...'}
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
                   {browserStage === 'extracting'
-                    ? 'SQLite3 Binary Verification • WebKit/PRTime/Cocoa Timestamp Decoding • SHA-256'
-                    : 'Automated Parser Core v3.5 • Phishing & C2 Correlator • Real-time Dashboard Update'}
+                    ? 'SQLite3 Verification · Timestamp Decoding · SHA-256'
+                    : 'فحص الروابط المشبوهة ومطابقة المؤشرات'}
                 </p>
               </div>
             )}
@@ -11699,9 +11590,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             {browserError && (
               <div className="rounded-2xl bg-red-950/30 border border-red-500/40 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-start gap-3 text-red-300">
-                  <AlertOctagon className="w-6 h-6 shrink-0 mt-0.5 text-red-400" />
+                  <AlertOctagon className="w-5 h-5 shrink-0 mt-0.5 text-red-400" />
                   <div className="space-y-1">
-                    <div className="text-sm font-bold text-red-200">تشخيص حالة التحليل عبر Automated Parser Core</div>
+                    <div className="text-sm font-bold text-red-200">تعذر إكمال التحليل السحابي</div>
                     <p className="text-xs leading-relaxed font-mono break-all">{browserError}</p>
                   </div>
                 </div>
@@ -12194,18 +12085,17 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         {/* Tab: Global Threat Intelligence & Live OSINT Engine */}
         {isTabVisible('threat_intel') && (
           <div className="space-y-6">
-            <div className="rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-950 border-2 border-gray-800 p-8 shadow-2xl space-y-6">
+            <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="space-y-2 max-w-3xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-xs font-mono">
-                    <Globe className="w-3.5 h-3.5" />
-                    GLOBAL THREAT INTELLIGENCE & LIVE OSINT ENGINE • THREAT HUNTING DAEMON v3.5
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="text-xs font-mono text-[#D4AF37]">
+                    Threat Intelligence & OSINT
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">
-                    محرك الاستخبارات السيبرانية العالمي (Global Threat Intelligence & Live OSINT)
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
+                    الاستخبارات السيبرانية (IP / Domain / Hash)
                   </h1>
-                  <p className="text-gray-400 text-sm leading-relaxed">
-                    فحص مباشر وشامل لعناوين الـ IP، النطاقات (Domains)، وبصمات الملفات التشفيرية (MD5 / SHA-1 / SHA-256) بالربط الحي مع سجلات DNS وRDAP وGeoIP وشهادات TLS وقواعد بيانات السمعة العالمية عبر وحدة Threat Hunting OSINT Daemon v3.5، وتحديث قسم التهديدات وسجلات العمليات فوراً.
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    استعلام مباشر لعناوين IP والنطاقات وبصمات الملفات عبر سجلات DNS وRDAP وGeoIP وشهادات TLS وقواعد السمعة.
                   </p>
                 </div>
                 {threatIntelResult && (
@@ -12287,20 +12177,20 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             {threatIntelLoading && (
               <div className="rounded-2xl bg-gray-900 border border-[#D4AF37]/40 p-10 text-center space-y-4">
                 <RefreshCw className="w-10 h-10 text-[#D4AF37] animate-spin mx-auto" />
-                <h3 className="text-lg font-bold text-white">
-                  جاري الاتصال بالخوادم العالمية وسجلات DNS/RDAP/GeoIP والربط الاستخباراتي عبر Threat Hunting OSINT Daemon...
+                <h3 className="text-base font-bold text-white">
+                  جاري فحص المؤشر عبر DNS وRDAP وGeoIP وقواعد السمعة...
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
-                  Live DNS • GeoIP/ASN • TLS Certificate Probe • MalwareBazaar / CIRCL Hashlookup • Threat Hunting Daemon v3.5
+                  DNS · RDAP · GeoIP/ASN · TLS · Hashlookup
                 </p>
               </div>
             )}
 
             {threatIntelError && (
               <div className="rounded-2xl bg-red-950/30 border border-red-500/40 p-5 flex items-start gap-3 text-red-300">
-                <AlertOctagon className="w-6 h-6 shrink-0 mt-0.5 text-red-400" />
+                <AlertOctagon className="w-5 h-5 shrink-0 mt-0.5 text-red-400" />
                 <div className="space-y-1">
-                  <div className="text-sm font-bold text-red-200">تشخيص حالة الاستعلام الاستخباراتي</div>
+                  <div className="text-sm font-bold text-red-200">تعذر إتمام الاستعلام</div>
                   <p className="text-xs leading-relaxed font-mono break-all">{threatIntelError}</p>
                 </div>
               </div>
@@ -12676,18 +12566,17 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         {/* Tab: Malicious Script & Payload Deobfuscator */}
         {isTabVisible('deobfuscator') && (
           <div className="space-y-6">
-            <div className="rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-950 border-2 border-gray-800 p-8 shadow-2xl space-y-6">
+            <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="space-y-2 max-w-3xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-xs font-mono">
-                    <FileCode className="w-3.5 h-3.5" />
-                    MALICIOUS SCRIPT & PAYLOAD DEOBFUSCATOR • STATIC MULTI-LAYER UNWRAPPING + NEURAL-X CORE v3.5
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="text-xs font-mono text-[#D4AF37]">
+                    Script Deobfuscator
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">
-                    محلل وسكربتات الحزم الخبيثة وفك التشويه (Malicious Script & Payload Deobfuscator)
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
+                    تحليل وفك تشويه السكربتات
                   </h1>
-                  <p className="text-gray-400 text-sm leading-relaxed">
-                    ارفع ملفات السكربتات المشبوهة (PowerShell, JavaScript, Python, VBScript, Batch, Bash) أو الصق الشفرة المموهة مباشرة. يقوم المحرك برمجياً وبشكل آمن بفك طبقات التمويه المتداخلة (Base64 / UTF-16LE / Zlib / String.fromCharCode / Format Strings / Hex / Caret & Backtick Evasion) واستخراج الأوامر والروابط الخفية ثم إرسالها إلى وحدة Neural-X Deobfuscator Core لإصدار التقرير الجنائي وتحديث سجل العمليات والتهديدات فوراً.
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    فك طبقات التمويه المتداخلة (Base64 / UTF-16LE / Zlib / CharCode / Hex) واستخراج الأوامر والروابط من PowerShell وJS وPython وBash.
                   </p>
                 </div>
                 {scriptStaticResult && (
@@ -12790,13 +12679,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             {scriptAnalyzing && (
               <div className="rounded-2xl bg-gray-900 border border-[#D4AF37]/40 p-10 text-center space-y-4">
                 <RefreshCw className="w-10 h-10 text-[#D4AF37] animate-spin mx-auto" />
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-base font-bold text-white">
                   {scriptStage === 'deobfuscating'
-                    ? 'جاري فك طبقات التشويه برمجياً واستخراج الأوامر والروابط الخفية...'
-                    : 'جاري إرسال الشفرة المفكوكة والمؤشرات إلى Neural-X Deobfuscator Core لإصدار التقرير الجنائي...'}
+                    ? 'جاري فك طبقات التشويه واستخراج المؤشرات...'
+                    : 'جاري تقييم الشفرة المستخرجة...'}
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
-                  Multi-Layer Static Unwrapping • Base64/UTF-16LE/Zlib • CharCode/Format Reconstruction • Neural-X Malware Core v3.5
+                  Base64 · UTF-16LE · Zlib · CharCode
                 </p>
               </div>
             )}
@@ -13191,18 +13080,17 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         {/* Tab: Deep Binary, PE/ELF Headers & Strings Forensic Lab */}
         {isTabVisible('binary_lab') && (
           <div className="space-y-6">
-            <div className="rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-950 border-2 border-gray-800 p-8 shadow-2xl space-y-6">
+            <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="space-y-2 max-w-3xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-xs font-mono">
-                    <Cpu className="w-3.5 h-3.5" />
-                    DEEP BINARY, PE/ELF HEADERS & STRINGS FORENSIC LAB • SOVEREIGN CORE ENGINE v3.5
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="text-xs font-mono text-[#D4AF37]">
+                    Binary Forensics · PE / ELF
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">
-                    مختبر الفحص الجنائي العميق للملفات التنفيذية والباينري (Binary, PE/ELF & Deep Strings Lab)
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
+                    تحليل الملفات التنفيذية والباينري (PE/ELF)
                   </h1>
-                  <p className="text-gray-400 text-sm leading-relaxed">
-                    ارفع أي ملف تنفيذي أو ثنائي أو قاعدة بيانات أو ملف نصي (`.exe`, `.dll`, `.sys`, `.elf`, `.so`, `.bin`, `.dmp`, `.db`, `.txt`) أو أدخل بايتات Hex مباشرة. يقوم المحرك محلياً بقراءة ترويسات PE/ELF ومقاطع الذاكرة (Sections & Entropy)، وكشف دوال الحقن والتجسس (Win32/POSIX APIs)، واستخراج نصوص ASCII/UTF-16LE، ثم إرسال الأدلة إلى وحدة Sovereign Binary Telemetry Core لتحديث التهديدات وسجلات العمليات فوراً.
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    قراءة ترويسات PE/ELF ومقاطع الذاكرة وحساب Entropy وكشف دوال النظام واستخراج نصوص ASCII/UTF-16LE.
                   </p>
                 </div>
                 {binaryLabStaticResult && (
@@ -13325,13 +13213,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             {binaryLabAnalyzing && (
               <div className="rounded-2xl bg-gray-900 border border-[#D4AF37]/40 p-10 text-center space-y-4">
                 <RefreshCw className="w-10 h-10 text-[#D4AF37] animate-spin mx-auto" />
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-base font-bold text-white">
                   {binaryLabStage === 'parsing'
-                    ? 'جاري تحليل الترويسات الثنائية (PE/ELF) والمقاطع واستخراج النصوص والدوال محلياً...'
-                    : 'جاري إرسال النتائج المستخرجة إلى Sovereign Binary Telemetry Core لإصدار التقرير الجنائي...'}
+                    ? 'جاري قراءة الترويسات الثنائية (PE/ELF) واستخراج النصوص...'
+                    : 'جاري إكمال تقييم الملف الثنائي...'}
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
-                  DataView PE/ELF Header Parser • Sliding-Window Entropy • Win32/POSIX API Scanner • Threat Hunting Daemon v3.5
+                  DataView PE/ELF · Entropy · Win32/POSIX APIs
                 </p>
               </div>
             )}
@@ -13810,18 +13698,17 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         {/* Tab: Live Threat Feeds & Automated Sync */}
         {isTabVisible('live_feeds') && (
           <div className="space-y-6">
-            <div className="rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-950 border-2 border-gray-800 p-8 shadow-2xl space-y-6">
+            <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="space-y-2 max-w-3xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
-                    <Activity className={`w-3.5 h-3.5 ${liveFeedsAutoSync ? 'animate-pulse' : ''}`} />
-                    LIVE THREAT FEEDS & AUTOMATED SYNC • REAL OPEN-SOURCE RSS & JSON APIs
+                <div className="space-y-1.5 max-w-3xl">
+                  <div className="text-xs font-mono text-emerald-400">
+                    Live Threat Feeds · RSS / JSON
                   </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-white">
-                    نظام جلب البيانات والتحديث التلقائي (Live Feeds & Automated Sync)
+                  <h1 className="text-xl md:text-2xl font-bold text-white">
+                    التغذيات الأمنية الحية والمزامنة
                   </h1>
-                  <p className="text-gray-400 text-sm leading-relaxed">
-                    اتصال حي ومجدول آلياً بأهم مصادر استخبارات التهديدات والثغرات الأمنية المفتوحة عالمياً (CISA KEV، CISA Advisories RSS، Abuse.ch Feodo Botnet C2، CIRCL CVE API، SANS ISC، The Hacker News + روابط RSS/API مخصصة)، مع تحديث تلقائي للوحة مؤشرات التهديدات وسجلات العمليات وإصدار موجز استخباراتي عبر Sovereign SOC Correlation Daemon.
+                  <p className="text-gray-400 text-xs leading-relaxed">
+                    مزامنة مباشرة مع CISA KEV وAbuse.ch Feodo C2 وCIRCL CVE وSANS ISC وروابط RSS المخصصة.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
@@ -13972,9 +13859,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   <div className="flex items-center gap-3">
                     <Sparkles className="w-6 h-6 text-[#D4AF37]" />
                     <div>
-                      <h2 className="text-base font-bold text-white">الموجز الاستخباراتي الحي لمركز العمليات (Sovereign SOC Correlation Briefing)</h2>
+                      <h2 className="text-base font-bold text-white">ملخص التهديدات النشطة</h2>
                       <p className="text-[11px] font-mono text-gray-400">
-                        Engine: {liveFeedsBriefing.modelUsed} • {formatTimestampSafe(liveFeedsBriefing.generatedAt)}
+                        {formatTimestampSafe(liveFeedsBriefing.generatedAt)}
                       </p>
                     </div>
                   </div>
@@ -15052,19 +14939,19 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
       {/* Panic Lock & Auto-Lock Screen Overlay */}
       {authReady && user && isLocked && (
-        <div className="fixed inset-0 z-[100] bg-[#0b0f19]/98 flex items-center justify-center p-4 backdrop-blur-2xl animate-in fade-in duration-300">
-          <div className="max-w-md w-full bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl text-center space-y-6 relative overflow-hidden">
-            <div className={`absolute top-0 left-0 right-0 h-1.5 ${hasUserPin ? 'bg-gradient-to-r from-red-500 via-[#D4AF37] to-red-500 animate-pulse' : 'bg-gradient-to-r from-[#D4AF37] via-emerald-500 to-[#D4AF37]'}`} />
+        <div className="fixed inset-0 z-[100] bg-[#0b0f19]/98 flex items-center justify-center p-4 backdrop-blur-xl">
+          <div className="max-w-md w-full bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center space-y-6 relative overflow-hidden">
+            <div className={`absolute top-0 left-0 right-0 h-1 ${hasUserPin ? 'bg-red-500/80' : 'bg-[#D4AF37]'}`} />
             
             {hasUserPin ? (
               <>
-                <div className="w-20 h-20 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto text-red-400 shadow-xl shadow-red-500/10">
-                  <ShieldAlert className="w-10 h-10 animate-bounce" />
+                <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto text-red-400">
+                  <ShieldAlert className="w-8 h-8" />
                 </div>
 
-                <div className="space-y-2">
-                  <h2 className="text-xl font-bold text-white tracking-tight">قفل الطوارئ السيادي</h2>
-                  <p className="text-xs text-gray-400 leading-relaxed">المنصة مقفلة لحماية الأدلة الرقمية والبيانات الحساسة. أدخل الرمز السري للمتابعة.</p>
+                <div className="space-y-1.5">
+                  <h2 className="text-xl font-bold text-white">قفل الجلسة</h2>
+                  <p className="text-xs text-gray-400 leading-relaxed">المنصة مقفلة لحماية الأدلة. أدخل الرمز السري للمتابعة.</p>
                 </div>
 
                 {/* Secret Dots Visual Feedback */}
@@ -15072,9 +14959,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   {[0, 1, 2, 3, 4, 5].map((idx) => (
                     <div
                       key={idx}
-                      className={`w-3.5 h-3.5 rounded-full transition-all duration-300 ${
+                      className={`w-3.5 h-3.5 rounded-full transition-colors duration-150 ${
                         enteredPin.length > idx
-                          ? 'bg-[#D4AF37] scale-110 shadow-[0_0_8px_#D4AF37]'
+                          ? 'bg-[#D4AF37]'
                           : 'bg-gray-800 border border-gray-700/60'
                       }`}
                     />
@@ -15104,27 +14991,27 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
                   <button
                     type="submit"
-                    className="w-full py-3.5 bg-gradient-to-r from-[#D4AF37] to-[#b8972e] text-gray-950 font-bold rounded-xl shadow-lg hover:opacity-95 transition text-sm cursor-pointer"
+                    className="w-full py-3.5 bg-[#D4AF37] hover:bg-[#c59f2c] text-gray-950 font-bold rounded-xl transition-colors text-sm cursor-pointer"
                   >
-                    إلغاء القفل واستئناف التحقيق
+                    فتح الجلسة
                   </button>
                 </form>
 
                 <div className="pt-2 flex items-center justify-center gap-2 text-[10px] text-gray-500 font-mono">
                   <Lock className="w-3 h-3 text-[#D4AF37]" />
-                  <span>رمز PIN مشفر بـ SHA-256 ومحمي في Firestore</span>
+                  <span>رمز PIN مشفر بـ SHA-256 ومحفوظ في Firestore</span>
                 </div>
               </>
             ) : (
               <>
-                <div className="w-20 h-20 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center mx-auto text-[#D4AF37] shadow-xl shadow-[#D4AF37]/10">
-                  <Key className="w-10 h-10 animate-pulse" />
+                <div className="w-16 h-16 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center mx-auto text-[#D4AF37]">
+                  <Key className="w-8 h-8" />
                 </div>
 
-                <div className="space-y-2">
-                  <h2 className="text-xl font-bold text-white tracking-tight">تعيين رمز PIN السري لقفل الطوارئ</h2>
+                <div className="space-y-1.5">
+                  <h2 className="text-xl font-bold text-white">تعيين رمز PIN للجلسة</h2>
                   <p className="text-xs text-gray-400 leading-relaxed">
-                    لم يتم تعيين رمز سري لحسابك بعد. يرجى إدخال وتأكيد رمز PIN خاص بك لأول مرة لحماية الأدلة، وسيتم تشفيره وحفظه مباشرة في حسابك على Firestore.
+                    أدخل رمز PIN لأول مرة لحماية الأدلة عند القفل، وسيتم تشفيره وحفظه في حسابك.
                   </p>
                 </div>
 

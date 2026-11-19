@@ -286,23 +286,22 @@ export function UpdateBanner({
   if (!hasUpdate || dismissed) return null;
 
   return (
-    <div className="relative z-50 bg-gradient-to-r from-amber-950/90 via-gray-900 to-amber-950/90 border-b-2 border-[#D4AF37] px-4 py-3 shadow-2xl backdrop-blur-md transition-all animate-in fade-in slide-in-from-top-2">
+    <div className="relative z-50 bg-gray-900/95 border-b border-[#D4AF37]/50 px-4 py-2.5 backdrop-blur-md">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-sm">
         
         {/* Update Notice Content */}
         <div className="flex items-center gap-3 text-right w-full md:w-auto">
-          <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/20 border border-[#D4AF37]/40 flex items-center justify-center shrink-0 text-[#D4AF37] animate-pulse">
-            <RefreshCw className="w-5 h-5 animate-spin" style={{ animationDuration: '3s' }} />
+          <div className="w-8 h-8 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/35 flex items-center justify-center shrink-0 text-[#D4AF37]">
+            <RefreshCw className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-white text-sm">هذا الموقع يريد تحديث!</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#D4AF37] text-gray-950 uppercase tracking-wider">
-                تحديث متوفر
-              </span>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-bold text-white">يتوفر تحديث جديد للمنصة</span>
+              <span className="text-gray-500">·</span>
+              <span className="text-[#D4AF37] font-medium">إصدار محدث جاهز للتثبيت</span>
             </div>
-            <p className="text-gray-300 text-xs mt-0.5">
-              يتوفر إصدار جديد من منصة SOVEREIGN الجنائية. قم بالتحديث الآن لتطبيق التحسينات الأمنية وتسريع الفحص.
+            <p className="text-gray-400 text-xs mt-0.5">
+              يمكنك تطبيق التحديث الآن للحصول على أحدث التحسينات دون التأثير على البيانات المحفوظة.
             </p>
           </div>
         </div>
@@ -311,24 +310,24 @@ export function UpdateBanner({
         <div className="flex items-center gap-2 w-full md:w-auto justify-end shrink-0">
           <button
             onClick={() => setShowModal(true)}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 bg-gray-800/80 hover:bg-gray-700 hover:text-white border border-gray-700 transition"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 hover:text-white border border-gray-700 transition-colors cursor-pointer"
           >
-            تفاصيل التحديث
+            التفاصيل
           </button>
 
           <button
             onClick={applyUpdateNow}
             disabled={isUpdating}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold bg-[#D4AF37] hover:bg-[#c29d2f] text-gray-950 shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold bg-[#D4AF37] hover:bg-[#c29d2f] text-gray-950 transition-colors cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
-            {isUpdating ? 'جاري التحديث والتطبيق...' : 'تحديث الآن'}
+            {isUpdating ? 'جاري التحديث...' : 'تحديث الآن'}
           </button>
 
           <button
             onClick={() => setDismissed(true)}
-            title="تذكيري لاحقاً"
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition"
+            title="إخفاء الإشعار"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
