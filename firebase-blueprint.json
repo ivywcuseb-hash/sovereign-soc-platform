@@ -167,12 +167,33 @@
         "recordHash": { "type": "string", "maxLength": 64 }
       },
       "required": [ "id", "timestamp", "eventType", "severity", "prevHash", "recordHash" ]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "User subscription status controlling access to paid forensic and SOC modules",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 320 },
+        "plan": { "type": "string", "enum": ["free", "pro", "enterprise"] },
+        "status": { "type": "string", "enum": ["active", "inactive", "expired", "revoked"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "grantedBy": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [ "userId", "plan", "status", "createdAt", "updatedAt" ]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Primary user documents"
+    },
+    "/subscriptions/{userId}": {
+      "schema": "Subscription",
+      "description": "Admin-managed user subscription plans and status"
     },
     "/admins/{adminId}": {
       "schema": "AdminRegistry",

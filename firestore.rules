@@ -17,9 +17,12 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Server-side Admin verification: clients can NEVER write to /admins/{uid}
+    // Server-side Admin & verified Platform Owner verification: clients can NEVER write to /admins/{uid}
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email_verified == true && request.auth.token.email == 'ivywcuseb@gmail.com')
+      );
     }
 
     function incoming() {
@@ -59,7 +62,7 @@ service cloud.firestore {
         && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'role', 'settings', 'createdAt'])
         && data.uid == request.auth.uid
         && data.email is string && data.email.size() <= 320
-        && (!('role' in data) || data.role == 'analyst')
+        && (!('role' in data) || data.role == 'analyst' || (data.role == 'admin' && isAdmin()))
         && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128))
         && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048))
         && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64))
@@ -67,20 +70,51 @@ service cloud.firestore {
     }
 
     function isValidUserUpdate(next, prev) {
-      return next.diff(prev).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings'])
-        && next.uid == prev.uid
-        && (!('role' in prev) || next.role == prev.role)
+      return next.uid == prev.uid
         && (!('displayName' in next) || (next.displayName is string && next.displayName.size() <= 128))
         && (!('photoURL' in next) || (next.photoURL is string && next.photoURL.size() <= 2048))
-        && (!('settings' in next) || next.settings is map);
+        && (!('settings' in next) || next.settings is map)
+        && (!('role' in next) || next.role in ['analyst', 'admin'])
+        && (
+          (next.diff(prev).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings']) && (!('role' in prev) || next.role == prev.role)) ||
+          (isAdmin() && next.diff(prev).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings', 'role']))
+        );
     }
 
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
       allow create: if isOwner(userId) && isValidId(userId) && isValidUserCreate(incoming());
-      allow update: if isOwner(userId) && isValidId(userId) && isValidUserUpdate(incoming(), existing());
+      allow update: if isValidId(userId) && (isOwner(userId) || isAdmin()) && isValidUserUpdate(incoming(), existing());
       allow delete: if false;
+    }
+
+    // =========================================================================
+    // Subscriptions (Admin-Managed Paid Tools Access Control)
+    // =========================================================================
+    function isValidSubscription(data, userId) {
+      return data.keys().hasAll(['userId', 'plan', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'email', 'plan', 'status', 'expiresAt', 'grantedBy', 'notes', 'createdAt', 'updatedAt'])
+        && data.userId is string && data.userId == userId && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.plan in ['free', 'pro', 'enterprise']
+        && data.status in ['active', 'inactive', 'expired', 'revoked']
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() <= 64
+        && (!('email' in data) || (data.email is string && data.email.size() <= 320))
+        && (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 64))
+        && (!('grantedBy' in data) || (data.grantedBy is string && data.grantedBy.size() <= 128))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 256));
+    }
+
+    match /subscriptions/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(userId) && isValidSubscription(incoming(), userId);
+      allow update: if isAdmin() && isValidId(userId)
+        && isValidSubscription(incoming(), userId)
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(userId);
     }
 
     // =========================================================================

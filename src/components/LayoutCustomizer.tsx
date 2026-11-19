@@ -477,6 +477,8 @@ interface LayoutCustomizerDrawerProps {
   onResetPreferences: () => void;
   syncStatus: 'idle' | 'saving' | 'saved' | 'local-only';
   isCloudAuthenticated: boolean;
+  isTabLocked?: (tabId: AppTabId) => boolean;
+  onLockedTabClick?: (tabId: AppTabId) => void;
 }
 
 export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
@@ -487,6 +489,8 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
   onResetPreferences,
   syncStatus,
   isCloudAuthenticated,
+  isTabLocked,
+  onLockedTabClick,
 }) => {
   const [procSearch, setProcSearch] = useState('');
   const [procCategory, setProcCategory] = useState<'all' | ProceduralCategory>('all');
@@ -528,6 +532,10 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
   };
 
   const toggleGridPanel = (tabId: AppTabId) => {
+    if (isTabLocked?.(tabId)) {
+      onLockedTabClick?.(tabId);
+      return;
+    }
     const exists = preferences.multiGridPanels.includes(tabId);
     let next: AppTabId[];
     if (exists) {
@@ -691,33 +699,45 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    onClick={() =>
-                      onUpdatePreferences({
-                        multiGridPanels: ['dashboard', 'live_feeds', 'threat_intel', 'audit'],
-                      })
-                    }
+                    onClick={() => {
+                      const preset: AppTabId[] = ['dashboard', 'live_feeds', 'threat_intel', 'audit'];
+                      const locked = preset.find((t) => isTabLocked?.(t));
+                      if (locked) {
+                        onLockedTabClick?.(locked);
+                        return;
+                      }
+                      onUpdatePreferences({ multiGridPanels: preset });
+                    }}
                     className="px-2.5 py-1 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-[10px] text-gray-300 cursor-pointer"
                   >
                     حزمة غرفة العمليات (SOC)
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      onUpdatePreferences({
-                        multiGridPanels: ['binary_lab', 'deobfuscator', 'apk', 'parser'],
-                      })
-                    }
+                    onClick={() => {
+                      const preset: AppTabId[] = ['binary_lab', 'deobfuscator', 'apk', 'parser'];
+                      const locked = preset.find((t) => isTabLocked?.(t));
+                      if (locked) {
+                        onLockedTabClick?.(locked);
+                        return;
+                      }
+                      onUpdatePreferences({ multiGridPanels: preset });
+                    }}
                     className="px-2.5 py-1 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-[10px] text-gray-300 cursor-pointer"
                   >
                     حزمة البرمجيات الخبيثة
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      onUpdatePreferences({
-                        multiGridPanels: ['evidence', 'custody', 'hex', 'ela'],
-                      })
-                    }
+                    onClick={() => {
+                      const preset: AppTabId[] = ['evidence', 'custody', 'hex', 'ela'];
+                      const locked = preset.find((t) => isTabLocked?.(t));
+                      if (locked) {
+                        onLockedTabClick?.(locked);
+                        return;
+                      }
+                      onUpdatePreferences({ multiGridPanels: preset });
+                    }}
                     className="px-2.5 py-1 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-[10px] text-gray-300 cursor-pointer"
                   >
                     حزمة الأدلة والوسائط
@@ -726,7 +746,8 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
 
                 <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
                   {NAV_TABS_META.map((tab) => {
-                    const active = preferences.multiGridPanels.includes(tab.id);
+                    const locked = Boolean(isTabLocked?.(tab.id));
+                    const active = !locked && preferences.multiGridPanels.includes(tab.id);
                     return (
                       <button
                         key={tab.id}
@@ -735,11 +756,17 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
                         className={`px-2.5 py-2 rounded-xl border text-[11px] font-medium flex items-center justify-between gap-1.5 transition cursor-pointer ${
                           active
                             ? 'bg-[#D4AF37]/15 border-[#D4AF37]/60 text-white'
+                            : locked
+                            ? 'bg-gray-950/60 border-gray-800/80 text-gray-500 hover:border-amber-500/40'
                             : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
                         }`}
                       >
                         <span className="truncate">{tab.shortLabel}</span>
-                        {active && <Check className="w-3 h-3 text-[#D4AF37] shrink-0" />}
+                        {locked ? (
+                          <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
+                        ) : (
+                          active && <Check className="w-3 h-3 text-[#D4AF37] shrink-0" />
+                        )}
                       </button>
                     );
                   })}
