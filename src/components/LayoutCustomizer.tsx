@@ -49,6 +49,9 @@ import {
   ShieldAlert,
   PieChart,
   AudioLines,
+  MailCheck,
+  FileCode2,
+  Network,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -90,7 +93,11 @@ export type AppTabId =
   | 'cyber_telemetry'
   | 'vuln_kev_dashboard'
   | 'asset_os_dashboard'
-  | 'live_voice';
+  | 'live_voice'
+  | 'dns_email_auditor'
+  | 'yara_scanner'
+  | 'jwt_inspector'
+  | 'pcap_inspector';
 
 export type LayoutStructure =
   | 'top'
@@ -180,6 +187,10 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'pdf_forensics', label: 'محلل المستندات (PDF)', shortLabel: 'مستندات PDF', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
   { id: 'url_tracer', label: 'متتبع الروابط المختصرة', shortLabel: 'تتبع الروابط', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
   { id: 'steg_inspector', label: 'كاشف الإخفاء (LSB Steg)', shortLabel: 'إخفاء الصور', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'dns_email_auditor', label: 'فاحص أمان النطاقات والبريد (DNS)', shortLabel: 'فاحص DNS/SPF', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'yara_scanner', label: 'ماسح قواعد YARA للملفات', shortLabel: 'ماسح YARA', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'jwt_inspector', label: 'محلل رموز التوثيق (JWT/Token)', shortLabel: 'محلل JWT', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
+  { id: 'pcap_inspector', label: 'محلل حزم الشبكة (PCAP)', shortLabel: 'محلل PCAP', group: 'labs', groupLabel: 'مختبرات الفحص المتقدم' },
 
   { id: 'profile', label: 'الحساب والإعدادات', shortLabel: 'الحساب', group: 'system', groupLabel: 'النظام والهوية' },
 ];
@@ -248,6 +259,14 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <PieChart className={className} />;
     case 'live_voice':
       return <AudioLines className={className} />;
+    case 'dns_email_auditor':
+      return <MailCheck className={className} />;
+    case 'yara_scanner':
+      return <FileCode2 className={className} />;
+    case 'jwt_inspector':
+      return <KeyRound className={className} />;
+    case 'pcap_inspector':
+      return <Network className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:

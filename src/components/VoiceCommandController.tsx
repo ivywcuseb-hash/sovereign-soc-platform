@@ -193,6 +193,26 @@ const TAB_VOICE_ROUTES: Array<{ tab: AppTabId; labelAr: string; keywords: string
     keywords: ['كاشف الاخفاء', 'البيانات المخفيه', 'steganography', 'lsb'],
   },
   {
+    tab: 'dns_email_auditor',
+    labelAr: 'فاحص أمان النطاقات والبريد (DNS/SPF/DMARC)',
+    keywords: ['فاحص النطاقات', 'امان البريد', 'سجلات dns', 'spf', 'dmarc', 'dns'],
+  },
+  {
+    tab: 'yara_scanner',
+    labelAr: 'ماسح قواعد YARA للملفات',
+    keywords: ['ماسح يارا', 'قواعد يارا', 'يارا', 'yara'],
+  },
+  {
+    tab: 'jwt_inspector',
+    labelAr: 'محلل رموز التوثيق (JWT / Token)',
+    keywords: ['محلل التوكن', 'رموز التوثيق', 'التوكن', 'jwt', 'token'],
+  },
+  {
+    tab: 'pcap_inspector',
+    labelAr: 'محلل حزم الشبكة (PCAP)',
+    keywords: ['حزم الشبكه', 'محلل الحزم', 'بيكاب', 'pcap'],
+  },
+  {
     tab: 'email',
     labelAr: 'تحليل البريد الإلكتروني',
     keywords: ['تحليل البريد', 'البريد', 'email'],

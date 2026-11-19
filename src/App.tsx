@@ -79,7 +79,9 @@ import {
   Radar,
   PieChart,
   AudioLines,
-  Mic
+  Mic,
+  MailCheck,
+  FileCode2
 } from 'lucide-react';
 import {
   LayoutCustomizerDrawer,
@@ -188,6 +190,12 @@ import {
 } from './components/SocDashboardsSuite';
 import { LiveVoiceAssistantLab } from './components/LiveVoiceAssistantLab';
 import { VoiceCommandController } from './components/VoiceCommandController';
+import {
+  EmailSecurityDnsAuditorLab,
+  YaraPatternScannerLab,
+  JwtTokenForensicInspectorLab,
+  PcapPacketInspectorLab,
+} from './components/ForensicExtendedLabs';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
@@ -450,7 +458,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [showVoiceCommandHud, setShowVoiceCommandHud] = useState<boolean>(false);
   const lastPickedFileRef = React.useRef<File | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -6077,6 +6085,22 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 <AudioLines className="w-4 h-4" />
                 المحادثة الصوتية الحية
               </button>
+              <button onClick={() => handleSelectTab('dns_email_auditor')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('dns_email_auditor') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <MailCheck className="w-4 h-4" />
+                فاحص أمان DNS/SPF
+              </button>
+              <button onClick={() => handleSelectTab('yara_scanner')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('yara_scanner') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <FileCode2 className="w-4 h-4" />
+                ماسح YARA
+              </button>
+              <button onClick={() => handleSelectTab('jwt_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('jwt_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <KeyRound className="w-4 h-4" />
+                محلل JWT
+              </button>
+              <button onClick={() => handleSelectTab('pcap_inspector')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('pcap_inspector') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
+                <Network className="w-4 h-4" />
+                محلل حزم PCAP
+              </button>
               <button onClick={() => handleSelectTab('reports')} className={`flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 ${isTabVisible('reports') ? 'text-[#D4AF37] border-[#D4AF37]' : 'border-transparent hover:text-white'}`}>
                 <FileText className="w-4 h-4" />
                 التقارير الموثقة
@@ -6394,6 +6418,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             <button onClick={() => handleSelectTab('vuln_kev_dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('vuln_kev_dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>ثغرات KEV</button>
             <button onClick={() => handleSelectTab('asset_os_dashboard')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('asset_os_dashboard') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الأصول والأنظمة</button>
             <button onClick={() => handleSelectTab('live_voice')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('live_voice') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الصوت الحي</button>
+            <button onClick={() => handleSelectTab('dns_email_auditor')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('dns_email_auditor') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>فاحص DNS/SPF</button>
+            <button onClick={() => handleSelectTab('yara_scanner')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('yara_scanner') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>ماسح YARA</button>
+            <button onClick={() => handleSelectTab('jwt_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('jwt_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل JWT</button>
+            <button onClick={() => handleSelectTab('pcap_inspector')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('pcap_inspector') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>محلل PCAP</button>
             <button onClick={() => handleSelectTab('reports')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('reports') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>التقارير الموثقة</button>
             <button onClick={() => handleSelectTab('profile')} className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap ${isTabVisible('profile') ? 'bg-[#D4AF37] text-gray-950 font-bold' : 'bg-gray-900 text-gray-300'}`}>الحساب</button>
           </div>
@@ -14542,6 +14570,82 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   }
                 : null,
             }}
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('dns_email_auditor') && (
+          <EmailSecurityDnsAuditorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('yara_scanner') && (
+          <YaraPatternScannerLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('jwt_inspector') && (
+          <JwtTokenForensicInspectorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('pcap_inspector') && (
+          <PcapPacketInspectorLab
             onNotify={notifyStatus}
             onRecordAudit={(p) =>
               void saveAuditLog({
