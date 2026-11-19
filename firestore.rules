@@ -22,10 +22,11 @@ service cloud.firestore {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         request.auth.uid == 'T1C6FEfH2CYtQm7mWElPY1L0x3I3' ||
-        (request.auth.token.email_verified == true && (
-          request.auth.token.email == 'ivywcusel@gmail.com' ||
-          request.auth.token.email == 'ivywcuseb@gmail.com'
-        ))
+        (
+          request.auth.token.email_verified == true &&
+          request.auth.token.email is string &&
+          request.auth.token.email.lower() in ['ivywcusel@gmail.com', 'ivywcuseb@gmail.com']
+        )
       );
     }
 

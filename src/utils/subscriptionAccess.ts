@@ -118,8 +118,11 @@ export function isSubscriptionActive(sub: UserSubscriptionRecord | null | undefi
 }
 
 export interface SovereignAccessState {
+  isOwner: boolean;
+  isDeveloper: boolean;
   isAdmin: boolean;
   isPro: boolean;
+  hasAccess: boolean;
   isAdminOrOwner: boolean;
   isOwnerEmail: boolean;
   isOwnerUid: boolean;
@@ -130,6 +133,15 @@ export interface SovereignAccessState {
   subscription: UserSubscriptionRecord | null;
   subscriptionLoaded: boolean;
   isTabLocked: (tabId: AppTabId) => boolean;
+}
+
+export function hasOwnerOrSubscriptionAccess(
+  user: User | null | undefined,
+  profile: AccessUserProfileLike | null | undefined,
+  subscription: UserSubscriptionRecord | null | undefined
+): boolean {
+  if (isPlatformAdminOrOwner(user, profile)) return true;
+  return isSubscriptionActive(subscription);
 }
 
 export function computeSovereignAccessState(
@@ -148,7 +160,7 @@ export function computeSovereignAccessState(
 
   let effectivePlanLabel = 'الخطة المجانية (أدوات أساسية)';
   if (isOwnerIdentity) {
-    effectivePlanLabel = 'مالك المنصة — وصول كامل (معفى تلقائياً)';
+    effectivePlanLabel = 'مالك ومطور المنصة — وصول كامل (معفى تلقائياً)';
   } else if (isAdminOrOwner) {
     effectivePlanLabel = 'مسؤول النظام (Admin) — وصول كامل';
   } else if (hasActiveSub && subRecord) {
@@ -163,14 +175,17 @@ export function computeSovereignAccessState(
   }
 
   const effectiveRoleLabel = isOwnerIdentity
-    ? 'OWNER / ADMIN'
+    ? 'OWNER / DEVELOPER'
     : isAdminOrOwner
     ? 'ADMIN'
     : (profile?.role || 'analyst').toUpperCase();
 
   return {
+    isOwner: isOwnerIdentity,
+    isDeveloper: isOwnerIdentity,
     isAdmin: isAdminOrOwner,
     isPro: hasFullAccess,
+    hasAccess: hasFullAccess,
     isAdminOrOwner,
     isOwnerEmail,
     isOwnerUid,
