@@ -24,6 +24,7 @@ import { NAV_TABS_META, type AppTabId } from './LayoutCustomizer';
 import {
   isSubscriptionActive,
   OWNER_EMAILS,
+  OWNER_UIDS,
   type SovereignAccessState,
   type SubscriptionPlanId,
   type UserSubscriptionRecord,
@@ -491,6 +492,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                   const sub = subsMap[u.uid];
                   const isOwnerOrAdminRow =
                     u.role === 'admin' ||
+                    OWNER_UIDS.has(u.uid) ||
                     OWNER_EMAILS.has((u.email || '').trim().toLowerCase());
                   const subActive = isSubscriptionActive(sub);
 

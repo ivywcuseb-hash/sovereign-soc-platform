@@ -200,7 +200,7 @@ import {
 } from './components/ForensicExtendedLabs';
 import {
   computeSovereignAccessState,
-  isOwnerEmailAccount,
+  isPlatformAdminOrOwner,
   type UserSubscriptionRecord,
 } from './utils/subscriptionAccess';
 import {
@@ -1408,7 +1408,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           // Fetch or Create User Profile
           const profileRef = doc(db, 'users', u.uid);
           const profileSnap = await getDoc(profileRef);
-          const isOwnerLogin = isOwnerEmailAccount(u);
+          const isOwnerLogin = isPlatformAdminOrOwner(u);
 
           if (!profileSnap.exists()) {
             const newProfile: UserProfile = {

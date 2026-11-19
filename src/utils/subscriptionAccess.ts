@@ -6,11 +6,12 @@ import type { AppTabId } from '../components/LayoutCustomizer';
  * from all subscription restrictions and receive unrestricted access to every lab.
  */
 export const OWNER_EMAILS: ReadonlySet<string> = new Set([
+  'ivywcusel@gmail.com',
   'ivywcuseb@gmail.com',
 ]);
 
 export const OWNER_UIDS: ReadonlySet<string> = new Set<string>([
-  // Add specific owner Firebase Auth UID(s) if needed in addition to email/role checks
+  'T1C6FEfH2CYtQm7mWElPY1L0x3I3',
 ]);
 
 export type SubscriptionPlanId = 'free' | 'pro' | 'enterprise';
@@ -62,6 +63,12 @@ export function resolveNormalizedUserEmail(user: User | null | undefined, profil
   return '';
 }
 
+export function isOwnerUidAccount(user: User | null | undefined, profile?: AccessUserProfileLike | null): boolean {
+  if (user?.uid && OWNER_UIDS.has(user.uid)) return true;
+  if (profile?.uid && OWNER_UIDS.has(profile.uid)) return true;
+  return false;
+}
+
 export function isOwnerEmailAccount(user: User | null | undefined, profile?: AccessUserProfileLike | null): boolean {
   if (!user) return false;
   const emailCandidates = [
@@ -91,9 +98,9 @@ export function isPlatformAdminOrOwner(
   profile?: AccessUserProfileLike | null
 ): boolean {
   if (!user) return false;
-  if (profile?.role === 'admin') return true;
-  if (OWNER_UIDS.has(user.uid)) return true;
+  if (isOwnerUidAccount(user, profile)) return true;
   if (isOwnerEmailAccount(user, profile)) return true;
+  if (profile?.role === 'admin') return true;
   return false;
 }
 
@@ -111,8 +118,11 @@ export function isSubscriptionActive(sub: UserSubscriptionRecord | null | undefi
 }
 
 export interface SovereignAccessState {
+  isAdmin: boolean;
+  isPro: boolean;
   isAdminOrOwner: boolean;
   isOwnerEmail: boolean;
+  isOwnerUid: boolean;
   hasActiveSubscription: boolean;
   hasFullAccess: boolean;
   effectivePlanLabel: string;
@@ -128,14 +138,16 @@ export function computeSovereignAccessState(
   subscription: UserSubscriptionRecord | null | undefined,
   subscriptionLoaded: boolean
 ): SovereignAccessState {
+  const isOwnerUid = isOwnerUidAccount(user, profile);
   const isOwnerEmail = isOwnerEmailAccount(user, profile);
+  const isOwnerIdentity = isOwnerUid || isOwnerEmail;
   const isAdminOrOwner = isPlatformAdminOrOwner(user, profile);
   const subRecord = subscription || null;
   const hasActiveSub = isSubscriptionActive(subRecord);
   const hasFullAccess = isAdminOrOwner || hasActiveSub;
 
   let effectivePlanLabel = 'الخطة المجانية (أدوات أساسية)';
-  if (isOwnerEmail) {
+  if (isOwnerIdentity) {
     effectivePlanLabel = 'مالك المنصة — وصول كامل (معفى تلقائياً)';
   } else if (isAdminOrOwner) {
     effectivePlanLabel = 'مسؤول النظام (Admin) — وصول كامل';
@@ -150,15 +162,18 @@ export function computeSovereignAccessState(
     effectivePlanLabel = 'تم إيقاف الاشتراك';
   }
 
-  const effectiveRoleLabel = isOwnerEmail
+  const effectiveRoleLabel = isOwnerIdentity
     ? 'OWNER / ADMIN'
     : isAdminOrOwner
     ? 'ADMIN'
     : (profile?.role || 'analyst').toUpperCase();
 
   return {
+    isAdmin: isAdminOrOwner,
+    isPro: hasFullAccess,
     isAdminOrOwner,
     isOwnerEmail,
+    isOwnerUid,
     hasActiveSubscription: hasActiveSub,
     hasFullAccess,
     effectivePlanLabel,
