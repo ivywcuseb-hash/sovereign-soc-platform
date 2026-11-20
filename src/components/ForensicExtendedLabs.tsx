@@ -24,6 +24,8 @@ import {
   Filter,
   Eye,
   Plus,
+  FileText,
+  Trash2,
 } from 'lucide-react';
 import type { ToolkitAuditPayload } from './SecurityToolkitLabs';
 
@@ -613,19 +615,23 @@ export const EmailSecurityDnsAuditorLab: React.FC<ExtendedLabProps> = ({
 };
 
 // ============================================================================
-// 2. YARA Pattern Scanner (Real File Byte/Hex/String/Regex Rule Engine)
+// 2. YARA Pattern Scanner (Real .yar Database + Multi-File Byte/Hex/Regex Engine)
 // ============================================================================
 interface ParsedYaraStringDef {
   id: string;
   kind: 'text' | 'hex' | 'regex';
   raw: string;
   nocase: boolean;
+  ascii: boolean;
+  wide: boolean;
   hexTokens?: Array<number | null>;
   regex?: RegExp;
 }
 
 interface ParsedYaraRule {
   name: string;
+  tags: string[];
+  meta: Record<string, string>;
   condition: string;
   strings: ParsedYaraStringDef[];
 }
@@ -640,41 +646,58 @@ interface YaraMatchHit {
   previewAscii: string;
 }
 
-interface YaraScanResult {
+interface YaraMatchedRuleSummary {
+  ruleName: string;
+  tags: string[];
+  severity: string;
+  description: string;
+  condition: string;
+  hitCount: number;
+  hits: YaraMatchHit[];
+}
+
+interface YaraFileScanResult {
   fileName: string;
   fileSize: number;
   sha256: string;
   md5: string;
   rulesEvaluated: number;
-  matchedRules: Array<{
-    ruleName: string;
-    condition: string;
-    hitCount: number;
-    hits: YaraMatchHit[];
-  }>;
+  matchedRules: YaraMatchedRuleSummary[];
   totalHits: number;
   scannedMs: number;
 }
 
+interface LoadedYarFileInfo {
+  name: string;
+  size: number;
+  ruleCount: number;
+}
+
 const YARA_PRESETS: Array<{ label: string; ruleText: string }> = [
   {
-    label: 'قاعدة كشف تنفيذي Windows PE & Shellcode',
-    ruleText: `rule Suspicious_PE_Or_API_Hooks
+    label: 'Windows PE & API Hooks',
+    ruleText: `rule Suspicious_PE_Or_API_Hooks : executable injection
 {
+  meta:
+    description = "Detects Windows PE binaries referencing process injection APIs"
+    severity = "high"
   strings:
     $mz_header = { 4D 5A ?? ?? }
     $pe_sig = { 50 45 00 00 }
-    $api_alloc = "VirtualAlloc" nocase
-    $api_thread = "CreateRemoteThread" nocase
-    $api_write = "WriteProcessMemory" nocase
+    $api_alloc = "VirtualAlloc" nocase ascii wide
+    $api_thread = "CreateRemoteThread" nocase ascii wide
+    $api_write = "WriteProcessMemory" nocase ascii wide
   condition:
     ($mz_header and $pe_sig) or any of ($api_*)
 }`,
   },
   {
-    label: 'قاعدة سكربتات PowerShell & Dropper',
-    ruleText: `rule Obfuscated_Script_Dropper
+    label: 'PowerShell & Dropper',
+    ruleText: `rule Obfuscated_Script_Dropper : script powershell
 {
+  meta:
+    description = "Detects obfuscated PowerShell or script dropper indicators"
+    severity = "critical"
   strings:
     $ps = "powershell" nocase
     $enc = "-EncodedCommand" nocase
@@ -687,9 +710,12 @@ const YARA_PRESETS: Array<{ label: string; ruleText: string }> = [
 }`,
   },
   {
-    label: 'قاعدة كشف تضمين ملفات مخفية / PDF JS',
-    ruleText: `rule Embedded_Payload_Or_PDF_JS
+    label: 'Embedded Payload / PDF JS',
+    ruleText: `rule Embedded_Payload_Or_PDF_JS : document archive
 {
+  meta:
+    description = "Detects ZIP headers or active JavaScript triggers in documents"
+    severity = "medium"
   strings:
     $zip_magic = { 50 4B 03 04 }
     $pdf_js = "/JavaScript" nocase
@@ -701,45 +727,170 @@ const YARA_PRESETS: Array<{ label: string; ruleText: string }> = [
   },
 ];
 
+function stripYaraComments(src: string): string {
+  let out = '';
+  let i = 0;
+  let inDoubleQuote = false;
+  let inRegex = false;
+  while (i < src.length) {
+    const ch = src[i];
+    const next = src[i + 1];
+    if (inDoubleQuote) {
+      out += ch;
+      if (ch === '\\' && i + 1 < src.length) {
+        out += src[i + 1];
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inDoubleQuote = false;
+      i++;
+      continue;
+    }
+    if (inRegex) {
+      out += ch;
+      if (ch === '\\' && i + 1 < src.length) {
+        out += src[i + 1];
+        i += 2;
+        continue;
+      }
+      if (ch === '/') inRegex = false;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      const end = src.indexOf('*/', i + 2);
+      i = end === -1 ? src.length : end + 2;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      const nl = src.indexOf('\n', i + 2);
+      i = nl === -1 ? src.length : nl;
+      continue;
+    }
+    if (ch === '"') {
+      inDoubleQuote = true;
+    } else if (ch === '/' && (i === 0 || /[\s=:(,]/.test(src[i - 1]))) {
+      inRegex = true;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
 function parseHexPatternTokens(rawHex: string): Array<number | null> {
-  return rawHex
-    .replace(/[{}]/g, ' ')
+  // Expand simple byte jumps like [2] into wildcards, strip ranges [2-4] cleanly
+  const expanded = rawHex
+    .replace(/\[\s*(\d+)\s*\]/g, (_m, n) => ' ?? '.repeat(Math.min(16, Number(n))))
+    .replace(/\[\s*\d*\s*-\s*\d*\s*\]/g, ' ?? ');
+
+  return expanded
+    .replace(/[{}()|]/g, ' ')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
     .map((tok) => {
-      if (tok === '??' || tok === '?') return null;
+      if (tok.includes('?')) return null;
       const val = parseInt(tok, 16);
       return Number.isNaN(val) ? null : val & 0xff;
     });
 }
 
+function splitYaraRuleSections(body: string): { metaSec: string; stringsSec: string; conditionSec: string } {
+  const sectionRegex = /(?:^|\n)\s*(meta|strings|condition)\s*:/gi;
+  const markers: Array<{ key: 'meta' | 'strings' | 'condition'; start: number; endOfLabel: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = sectionRegex.exec(body)) !== null) {
+    markers.push({
+      key: m[1].toLowerCase() as 'meta' | 'strings' | 'condition',
+      start: m.index,
+      endOfLabel: m.index + m[0].length,
+    });
+  }
+  let metaSec = '';
+  let stringsSec = '';
+  let conditionSec = '';
+  for (let i = 0; i < markers.length; i++) {
+    const cur = markers[i];
+    const nextStart = i + 1 < markers.length ? markers[i + 1].start : body.length;
+    const content = body.slice(cur.endOfLabel, nextStart).trim();
+    if (cur.key === 'meta') metaSec = content;
+    else if (cur.key === 'strings') stringsSec = content;
+    else if (cur.key === 'condition') conditionSec = content;
+  }
+  return { metaSec, stringsSec, conditionSec };
+}
+
 function parseYaraRulesInput(rawInput: string): ParsedYaraRule[] {
-  const trimmed = rawInput.trim();
-  if (!trimmed) return [];
+  const cleaned = stripYaraComments(rawInput).trim();
+  if (!cleaned) return [];
 
   const ruleBlocks: ParsedYaraRule[] = [];
-  const ruleRegex = /rule\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\n\}/g;
+  const headerRegex = /\b(?:private\s+|global\s+)*rule\s+([A-Za-z0-9_]+)(?:\s*:\s*([^{]+))?\s*\{/g;
   let match: RegExpExecArray | null;
 
-  while ((match = ruleRegex.exec(trimmed)) !== null) {
+  while ((match = headerRegex.exec(cleaned)) !== null) {
     const name = match[1];
-    const body = match[2];
-    const stringsSection = body.match(/strings\s*:([\s\S]*?)(?:condition\s*:|$)/i)?.[1] || '';
-    const condition = (body.match(/condition\s*:([\s\S]*?)$/i)?.[1] || 'any of them').trim();
+    const tags = (match[2] || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    // Brace-balanced scan from opening '{'
+    let idx = headerRegex.lastIndex;
+    let depth = 1;
+    let inQuote = false;
+    while (idx < cleaned.length && depth > 0) {
+      const ch = cleaned[idx];
+      if (inQuote) {
+        if (ch === '\\' && idx + 1 < cleaned.length) {
+          idx += 2;
+          continue;
+        }
+        if (ch === '"') inQuote = false;
+      } else {
+        if (ch === '"') inQuote = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}') depth--;
+      }
+      idx++;
+    }
+
+    if (depth !== 0) continue;
+    const body = cleaned.slice(headerRegex.lastIndex, idx - 1);
+    headerRegex.lastIndex = idx;
+
+    const { metaSec, stringsSec, conditionSec } = splitYaraRuleSections(body);
+    const meta: Record<string, string> = {};
+    for (const line of metaSec.split(/\r?\n/)) {
+      const mm = line.trim().match(/^([A-Za-z0-9_]+)\s*=\s*(?:"([^"]*)"|([^\s]+))/);
+      if (mm) {
+        meta[mm[1].toLowerCase()] = (mm[2] ?? mm[3] ?? '').trim();
+      }
+    }
 
     const defs: ParsedYaraStringDef[] = [];
-    for (const line of stringsSection.split(/\r?\n/)) {
+    for (const line of stringsSec.split(/\r?\n/)) {
       const l = line.trim();
-      if (!l || l.startsWith('//')) continue;
+      if (!l) continue;
       const mText = l.match(/^(\$[A-Za-z0-9_*]+)\s*=\s*"((?:[^"\\]|\\.)*)"(.*)$/);
       if (mText) {
-        const nocase = /\bnocase\b/i.test(mText[3] || '');
+        const mods = mText[3] || '';
+        const nocase = /\bnocase\b/i.test(mods);
+        const hasWide = /\bwide\b/i.test(mods);
+        const hasAscii = /\bascii\b/i.test(mods) || !hasWide;
         defs.push({
           id: mText[1],
           kind: 'text',
-          raw: mText[2].replace(/\\"/g, '"').replace(/\\\\/g, '\\'),
+          raw: mText[2]
+            .replace(/\\"/g, '"')
+            .replace(/\\n/g, '\n')
+            .replace(/\\r/g, '\r')
+            .replace(/\\t/g, '\t')
+            .replace(/\\\\/g, '\\'),
           nocase,
+          ascii: hasAscii,
+          wide: hasWide,
         });
         continue;
       }
@@ -750,11 +901,13 @@ function parseYaraRulesInput(rawInput: string): ParsedYaraRule[] {
           kind: 'hex',
           raw: mHex[2].trim(),
           nocase: false,
+          ascii: false,
+          wide: false,
           hexTokens: parseHexPatternTokens(mHex[2]),
         });
         continue;
       }
-      const mRe = l.match(/^(\$[A-Za-z0-9_*]+)\s*=\s*\/(.+?)\/([gimsuy]*)$/);
+      const mRe = l.match(/^(\$[A-Za-z0-9_*]+)\s*=\s*\/(.+?)\/([gimsuy]*)(.*)$/);
       if (mRe) {
         try {
           const flags = mRe[3].includes('g') ? mRe[3] : `${mRe[3]}g`;
@@ -763,6 +916,8 @@ function parseYaraRulesInput(rawInput: string): ParsedYaraRule[] {
             kind: 'regex',
             raw: mRe[2],
             nocase: flags.includes('i'),
+            ascii: true,
+            wide: false,
             regex: new RegExp(mRe[2], flags),
           });
         } catch {
@@ -772,75 +927,201 @@ function parseYaraRulesInput(rawInput: string): ParsedYaraRule[] {
     }
 
     if (defs.length > 0) {
-      ruleBlocks.push({ name, condition, strings: defs });
+      ruleBlocks.push({
+        name,
+        tags,
+        meta,
+        condition: (conditionSec || 'any of them').trim(),
+        strings: defs,
+      });
     }
   }
 
-  // Fallback: simple line-by-line pattern mode (if user didn't write `rule X { ... }`)
+  // Fallback: simple line-by-line pattern mode if plain IOCs/patterns pasted without `rule ... { }`
   if (ruleBlocks.length === 0) {
     const simpleDefs: ParsedYaraStringDef[] = [];
-    const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const lines = cleaned.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     lines.forEach((line, idx) => {
       const id = `$p${idx + 1}`;
       if (/^\{[0-9A-Fa-f?\s]+\}$/.test(line) || /^hex:/i.test(line)) {
-        const cleaned = line.replace(/^hex:/i, '').trim();
+        const cleanedHex = line.replace(/^hex:/i, '').trim();
         simpleDefs.push({
           id,
           kind: 'hex',
-          raw: cleaned,
+          raw: cleanedHex,
           nocase: false,
-          hexTokens: parseHexPatternTokens(cleaned),
+          ascii: false,
+          wide: false,
+          hexTokens: parseHexPatternTokens(cleanedHex),
         });
       } else if (/^\/.+\/[gimsuy]*$/.test(line)) {
         const m = line.match(/^\/(.+)\/([gimsuy]*)$/);
         if (m) {
           try {
             const flags = m[2].includes('g') ? m[2] : `${m[2]}g`;
-            simpleDefs.push({ id, kind: 'regex', raw: m[1], nocase: flags.includes('i'), regex: new RegExp(m[1], flags) });
+            simpleDefs.push({
+              id,
+              kind: 'regex',
+              raw: m[1],
+              nocase: flags.includes('i'),
+              ascii: true,
+              wide: false,
+              regex: new RegExp(m[1], flags),
+            });
           } catch {}
         }
       } else {
-        simpleDefs.push({ id, kind: 'text', raw: line.replace(/^"|"$/g, ''), nocase: true });
+        simpleDefs.push({
+          id,
+          kind: 'text',
+          raw: line.replace(/^"|"$/g, ''),
+          nocase: true,
+          ascii: true,
+          wide: false,
+        });
       }
     });
     if (simpleDefs.length > 0) {
-      ruleBlocks.push({ name: 'Custom_Pattern_Rule', condition: 'any of them', strings: simpleDefs });
+      ruleBlocks.push({
+        name: 'Custom_Pattern_Rule',
+        tags: ['custom'],
+        meta: { description: 'قواعد أنماط نصية أو بايتية مخصصة', severity: 'medium' },
+        condition: 'any of them',
+        strings: simpleDefs,
+      });
     }
   }
 
   return ruleBlocks;
 }
 
-function evaluateYaraCondition(condition: string, matchedIds: Set<string>, totalStrings: number): boolean {
-  const norm = condition.toLowerCase().trim();
+function evalSafeBooleanExpr(expr: string): boolean {
+  const tokens = expr.match(/\(|\)|&&|\|\||!|true|false/g) || [];
+  let pos = 0;
+
+  function parseOr(): boolean {
+    let left = parseAnd();
+    while (tokens[pos] === '||') {
+      pos++;
+      const right = parseAnd();
+      left = left || right;
+    }
+    return left;
+  }
+
+  function parseAnd(): boolean {
+    let left = parseUnary();
+    while (tokens[pos] === '&&') {
+      pos++;
+      const right = parseUnary();
+      left = left && right;
+    }
+    return left;
+  }
+
+  function parseUnary(): boolean {
+    if (tokens[pos] === '!') {
+      pos++;
+      return !parseUnary();
+    }
+    if (tokens[pos] === '(') {
+      pos++;
+      const val = parseOr();
+      if (tokens[pos] === ')') pos++;
+      return val;
+    }
+    const tok = tokens[pos++];
+    return tok === 'true';
+  }
+
+  return parseOr();
+}
+
+function evaluateYaraCondition(
+  condition: string,
+  matchedIds: Set<string>,
+  allStringIds: string[],
+  bytes: Uint8Array
+): boolean {
+  const totalStrings = allStringIds.length;
+  let norm = condition.toLowerCase().trim();
   if (!norm || norm === 'any of them') return matchedIds.size > 0;
   if (norm === 'all of them') return matchedIds.size >= totalStrings && totalStrings > 0;
 
-  const nOfThem = norm.match(/^(\d+)\s+of\s+them$/);
-  if (nOfThem) return matchedIds.size >= Number(nOfThem[1]);
+  // Evaluate uint16(offset) == value / uint32(offset) == value
+  norm = norm.replace(
+    /\buint(16|32)(be)?\s*\(\s*(0x[0-9a-f]+|\d+)\s*\)\s*(==|!=)\s*(0x[0-9a-f]+|\d+)/gi,
+    (_m, bits, be, offStr, op, valStr) => {
+      const off = offStr.startsWith('0x') ? parseInt(offStr, 16) : Number(offStr);
+      const expected = valStr.startsWith('0x') ? parseInt(valStr, 16) : Number(valStr);
+      const byteLen = bits === '32' ? 4 : 2;
+      if (off < 0 || off + byteLen > bytes.length) return op === '!=' ? 'true' : 'false';
+      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const actual = bits === '32' ? dv.getUint32(off, !be) : dv.getUint16(off, !be);
+      const eq = actual === expected;
+      return (op === '==' ? eq : !eq) ? 'true' : 'false';
+    }
+  );
 
-  if (/any\s+of\s+\(\$[a-z0-9_]+\*\)/i.test(norm)) {
-    const prefix = norm.match(/any\s+of\s+\((\$[a-z0-9_]+)\*\)/i)?.[1];
-    if (prefix && Array.from(matchedIds).some((id) => id.toLowerCase().startsWith(prefix))) return true;
-  }
+  // Evaluate filesize comparisons like `filesize < 5MB` or `filesize > 100`
+  norm = norm.replace(
+    /\bfilesize\s*(<=|>=|==|!=|<|>)\s*(\d+)\s*(kb|mb)?\b/gi,
+    (_m, op, numStr, unit) => {
+      const mult = unit?.toLowerCase() === 'mb' ? 1024 * 1024 : unit?.toLowerCase() === 'kb' ? 1024 : 1;
+      const rhs = Number(numStr) * mult;
+      const lhs = bytes.length;
+      const ok =
+        op === '<'
+          ? lhs < rhs
+          : op === '<='
+          ? lhs <= rhs
+          : op === '>'
+          ? lhs > rhs
+          : op === '>='
+          ? lhs >= rhs
+          : op === '=='
+          ? lhs === rhs
+          : lhs !== rhs;
+      return ok ? 'true' : 'false';
+    }
+  );
 
-  // Evaluate boolean expression referencing $vars
-  let expr = norm;
-  const vars = Array.from(new Set(expr.match(/\$[a-z0-9_]+/g) || []));
+  // Evaluate `N of ($prefix*)` / `any of ($prefix*)` / `all of ($prefix*)`
+  norm = norm.replace(
+    /\b(any|all|\d+)\s+of\s+\((\$[a-z0-9_]+)\*\)/gi,
+    (_m, qty, prefix) => {
+      const prefLower = prefix.toLowerCase();
+      const totalWithPrefix = allStringIds.filter((id) => id.toLowerCase().startsWith(prefLower)).length;
+      const matchedWithPrefix = Array.from(matchedIds).filter((id) => id.toLowerCase().startsWith(prefLower)).length;
+      if (qty === 'any') return matchedWithPrefix > 0 ? 'true' : 'false';
+      if (qty === 'all') return totalWithPrefix > 0 && matchedWithPrefix >= totalWithPrefix ? 'true' : 'false';
+      return matchedWithPrefix >= Number(qty) ? 'true' : 'false';
+    }
+  );
+
+  // Evaluate `N of them` / `any of them` / `all of them`
+  norm = norm.replace(/\b(\d+)\s+of\s+them\b/gi, (_m, n) =>
+    matchedIds.size >= Number(n) ? 'true' : 'false'
+  );
+  norm = norm
+    .replace(/\bany\s+of\s+them\b/gi, matchedIds.size > 0 ? 'true' : 'false')
+    .replace(/\ball\s+of\s+them\b/gi, totalStrings > 0 && matchedIds.size >= totalStrings ? 'true' : 'false');
+
+  // Replace $vars
+  const vars = Array.from(new Set(norm.match(/\$[a-z0-9_]+/g) || []));
   for (const v of vars) {
     const hit = Array.from(matchedIds).some((id) => id.toLowerCase() === v);
-    expr = expr.replace(new RegExp(`\\${v}\\b`, 'g'), hit ? 'true' : 'false');
+    norm = norm.replace(new RegExp(`\\${v}\\b`, 'g'), hit ? 'true' : 'false');
   }
-  expr = expr
+
+  norm = norm
     .replace(/\band\b/g, '&&')
     .replace(/\bor\b/g, '||')
-    .replace(/\bnot\b/g, '!')
-    .replace(/any of them/g, matchedIds.size > 0 ? 'true' : 'false')
-    .replace(/all of them/g, matchedIds.size >= totalStrings && totalStrings > 0 ? 'true' : 'false');
+    .replace(/\bnot\b/g, '!');
 
-  if (/^[truefals\s&|!()]+$/.test(expr)) {
+  if (/^[truefals\s&|!()]+$/.test(norm)) {
     try {
-      return Boolean(new Function(`"use strict"; return (${expr});`)());
+      return evalSafeBooleanExpr(norm);
     } catch {
       return matchedIds.size > 0;
     }
@@ -849,83 +1130,131 @@ function evaluateYaraCondition(condition: string, matchedIds: Set<string>, total
   return matchedIds.size > 0;
 }
 
+function toUtf16LeLatin1(str: string): string {
+  let res = '';
+  for (let i = 0; i < str.length; i++) {
+    res += str[i] + '\u0000';
+  }
+  return res;
+}
+
+function sanitizeCsvValue(val: string | number): string {
+  const s = String(val ?? '');
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
 export const YaraPatternScannerLab: React.FC<ExtendedLabProps> = ({
   onNotify,
   onRecordAudit,
 }) => {
   const [ruleText, setRuleText] = useState(YARA_PRESETS[0].ruleText);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [loadedYarFiles, setLoadedYarFiles] = useState<LoadedYarFileInfo[]>([]);
+  const [targetFiles, setTargetFiles] = useState<File[]>([]);
   const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState<YaraScanResult | null>(null);
+  const [scanResults, setScanResults] = useState<YaraFileScanResult[]>([]);
+  const [tableSearch, setTableSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'matched' | 'clean'>('all');
+  const [selectedHitDetail, setSelectedHitDetail] = useState<{
+    fileName: string;
+    ruleName: string;
+    hit: YaraMatchHit;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const runYaraScan = async (fileToScan?: File) => {
-    const file = fileToScan || selectedFile;
-    if (!file) {
-      setError('يرجى رفع ملف حقيقي لفحصه بقواعد YARA.');
-      return;
-    }
-    const rules = parseYaraRulesInput(ruleText);
-    if (rules.length === 0) {
-      setError('لم يتم العثور على قواعد أو أنماط بحث صالحة في المحرر.');
-      return;
-    }
+  const parsedRuleSummary = useMemo(() => parseYaraRulesInput(ruleText), [ruleText]);
 
-    setScanning(true);
+  const handleYarDatabaseUpload = async (fileList: FileList | null, appendMode: boolean) => {
+    if (!fileList || fileList.length === 0) return;
     setError(null);
+    const files = Array.from(fileList);
+    const sections: string[] = [];
+    const metaInfos: LoadedYarFileInfo[] = [];
+
+    for (const f of files) {
+      const text = await f.text();
+      if (!text.trim()) continue;
+      const parsed = parseYaraRulesInput(text);
+      sections.push(`/* Source: ${f.name} */\n${text.trim()}`);
+      metaInfos.push({ name: f.name, size: f.size, ruleCount: parsed.length });
+    }
+
+    if (sections.length === 0) {
+      setError('ملف القواعد المرفوع فارغ ولا يحتوي على قواعد YARA صالحة.');
+      onNotify('ملف .yar المرفوع فارغ.', 'warning');
+      return;
+    }
+
+    const combined = sections.join('\n\n');
+    if (appendMode && ruleText.trim()) {
+      setRuleText((prev) => `${prev.trim()}\n\n${combined}`);
+      setLoadedYarFiles((prev) => [...prev, ...metaInfos]);
+    } else {
+      setRuleText(combined);
+      setLoadedYarFiles(metaInfos);
+    }
+
+    const totalAddedRules = metaInfos.reduce((sum, x) => sum + x.ruleCount, 0);
+    onNotify(`تم تحميل ${metaInfos.length} ملف قاعدة YARA (${totalAddedRules} قاعدة).`, 'success');
+  };
+
+  const scanSingleTargetFile = async (file: File, rules: ParsedYaraRule[]): Promise<YaraFileScanResult> => {
     const t0 = performance.now();
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const sha256 = await digestHex('SHA-256', bytes);
+    const md5 = SparkMD5.ArrayBuffer.hash(buffer);
 
-    try {
-      const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const [sha256] = await Promise.all([digestHex('SHA-256', bytes)]);
-      const md5 = SparkMD5.ArrayBuffer.hash(buffer);
-      // Latin1 string preserves 1:1 byte offset for regex/text scanning
-      let latin1 = '';
-      const chunkSz = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunkSz) {
-        latin1 += String.fromCharCode(...bytes.subarray(i, Math.min(bytes.length, i + chunkSz)));
-      }
-      const lowerLatin1 = latin1.toLowerCase();
+    let latin1 = '';
+    const chunkSz = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSz) {
+      latin1 += String.fromCharCode(...bytes.subarray(i, Math.min(bytes.length, i + chunkSz)));
+    }
+    const lowerLatin1 = latin1.toLowerCase();
 
-      const matchedRules: YaraScanResult['matchedRules'] = [];
-      let totalHits = 0;
+    const matchedRules: YaraMatchedRuleSummary[] = [];
+    let totalHits = 0;
 
-      for (const rule of rules) {
-        const ruleHits: YaraMatchHit[] = [];
-        const matchedIds = new Set<string>();
+    for (const rule of rules) {
+      const ruleHits: YaraMatchHit[] = [];
+      const matchedIds = new Set<string>();
 
-        for (const sDef of rule.strings) {
-          if (sDef.kind === 'hex' && sDef.hexTokens && sDef.hexTokens.length > 0) {
-            const pat = sDef.hexTokens;
-            const limit = Math.min(bytes.length - pat.length, 4_000_000);
-            for (let i = 0; i <= limit; i++) {
-              let ok = true;
-              for (let j = 0; j < pat.length; j++) {
-                if (pat[j] !== null && bytes[i + j] !== pat[j]) {
-                  ok = false;
-                  break;
-                }
-              }
-              if (ok) {
-                matchedIds.add(sDef.id);
-                const slice = bytes.subarray(i, Math.min(bytes.length, i + Math.max(pat.length, 16)));
-                ruleHits.push({
-                  ruleName: rule.name,
-                  stringId: sDef.id,
-                  kind: 'hex',
-                  offset: i,
-                  offsetHex: `0x${i.toString(16).toUpperCase().padStart(8, '0')}`,
-                  matchedHex: Array.from(slice).map((b) => b.toString(16).padStart(2, '0')).join(' '),
-                  previewAscii: Array.from(slice).map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join(''),
-                });
-                if (ruleHits.length >= 40) break;
-                i += Math.max(0, pat.length - 1);
+      for (const sDef of rule.strings) {
+        if (sDef.kind === 'hex' && sDef.hexTokens && sDef.hexTokens.length > 0) {
+          const pat = sDef.hexTokens;
+          const limit = Math.min(bytes.length - pat.length, 4_000_000);
+          for (let i = 0; i <= limit; i++) {
+            let ok = true;
+            for (let j = 0; j < pat.length; j++) {
+              if (pat[j] !== null && bytes[i + j] !== pat[j]) {
+                ok = false;
+                break;
               }
             }
-          } else if (sDef.kind === 'text' && sDef.raw) {
+            if (ok) {
+              matchedIds.add(sDef.id);
+              const slice = bytes.subarray(i, Math.min(bytes.length, i + Math.max(pat.length, 16)));
+              ruleHits.push({
+                ruleName: rule.name,
+                stringId: sDef.id,
+                kind: 'hex',
+                offset: i,
+                offsetHex: `0x${i.toString(16).toUpperCase().padStart(8, '0')}`,
+                matchedHex: Array.from(slice).map((b) => b.toString(16).padStart(2, '0')).join(' '),
+                previewAscii: Array.from(slice).map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.')).join(''),
+              });
+              if (ruleHits.length >= 40) break;
+              i += Math.max(0, pat.length - 1);
+            }
+          }
+        } else if (sDef.kind === 'text' && sDef.raw) {
+          const searchVariants: string[] = [];
+          if (sDef.ascii) searchVariants.push(sDef.raw);
+          if (sDef.wide) searchVariants.push(toUtf16LeLatin1(sDef.raw));
+
+          for (const variant of searchVariants) {
             const hay = sDef.nocase ? lowerLatin1 : latin1;
-            const needle = sDef.nocase ? sDef.raw.toLowerCase() : sDef.raw;
+            const needle = sDef.nocase ? variant.toLowerCase() : variant;
             let pos = 0;
             while (pos < hay.length) {
               const foundIdx = hay.indexOf(needle, pos);
@@ -946,95 +1275,291 @@ export const YaraPatternScannerLab: React.FC<ExtendedLabProps> = ({
               if (ruleHits.length >= 40) break;
               pos = foundIdx + needle.length;
             }
-          } else if (sDef.kind === 'regex' && sDef.regex) {
-            sDef.regex.lastIndex = 0;
-            let m: RegExpExecArray | null;
-            let guard = 0;
-            while ((m = sDef.regex.exec(latin1)) !== null && guard < 40) {
-              guard++;
-              matchedIds.add(sDef.id);
-              const idx = m.index;
-              const slice = bytes.subarray(idx, Math.min(bytes.length, idx + Math.min(24, m[0].length)));
-              ruleHits.push({
-                ruleName: rule.name,
-                stringId: sDef.id,
-                kind: 'regex',
-                offset: idx,
-                offsetHex: `0x${idx.toString(16).toUpperCase().padStart(8, '0')}`,
-                matchedHex: Array.from(slice).map((b) => b.toString(16).padStart(2, '0')).join(' '),
-                previewAscii: m[0].slice(0, 60),
-              });
-              if (m[0].length === 0) sDef.regex.lastIndex++;
-            }
           }
-        }
-
-        if (evaluateYaraCondition(rule.condition, matchedIds, rule.strings.length)) {
-          matchedRules.push({
-            ruleName: rule.name,
-            condition: rule.condition,
-            hitCount: ruleHits.length,
-            hits: ruleHits,
-          });
-          totalHits += ruleHits.length;
+        } else if (sDef.kind === 'regex' && sDef.regex) {
+          sDef.regex.lastIndex = 0;
+          let m: RegExpExecArray | null;
+          let guard = 0;
+          while ((m = sDef.regex.exec(latin1)) !== null && guard < 40) {
+            guard++;
+            matchedIds.add(sDef.id);
+            const idx = m.index;
+            const slice = bytes.subarray(idx, Math.min(bytes.length, idx + Math.min(24, m[0].length)));
+            ruleHits.push({
+              ruleName: rule.name,
+              stringId: sDef.id,
+              kind: 'regex',
+              offset: idx,
+              offsetHex: `0x${idx.toString(16).toUpperCase().padStart(8, '0')}`,
+              matchedHex: Array.from(slice).map((b) => b.toString(16).padStart(2, '0')).join(' '),
+              previewAscii: m[0].slice(0, 60),
+            });
+            if (m[0].length === 0) sDef.regex.lastIndex++;
+          }
         }
       }
 
-      const elapsed = Math.round(performance.now() - t0);
-      setScanResult({
-        fileName: file.name,
-        fileSize: file.size,
-        sha256,
-        md5,
-        rulesEvaluated: rules.length,
-        matchedRules,
-        totalHits,
-        scannedMs: elapsed,
-      });
+      const allStringIds = rule.strings.map((s) => s.id);
+      if (evaluateYaraCondition(rule.condition, matchedIds, allStringIds, bytes)) {
+        matchedRules.push({
+          ruleName: rule.name,
+          tags: rule.tags,
+          severity: rule.meta.severity || rule.meta.threat_level || 'medium',
+          description: rule.meta.description || '',
+          condition: rule.condition,
+          hitCount: ruleHits.length,
+          hits: ruleHits,
+        });
+        totalHits += ruleHits.length;
+      }
+    }
+
+    return {
+      fileName: file.name,
+      fileSize: file.size,
+      sha256,
+      md5,
+      rulesEvaluated: rules.length,
+      matchedRules,
+      totalHits,
+      scannedMs: Math.round(performance.now() - t0),
+    };
+  };
+
+  const runYaraScan = async (overrideFiles?: File[]) => {
+    const filesToScan = overrideFiles || targetFiles;
+    if (filesToScan.length === 0) {
+      setError('يرجى رفع ملف واحد أو أكثر لفحصه بقواعد YARA.');
+      return;
+    }
+    const rules = parseYaraRulesInput(ruleText);
+    if (rules.length === 0) {
+      setError('لا توجد قواعد YARA صالحة. قم برفع ملف .yar أو كتابة قاعدة صالحة في المحرر.');
+      return;
+    }
+
+    setScanning(true);
+    setError(null);
+    setSelectedHitDetail(null);
+
+    try {
+      const results: YaraFileScanResult[] = [];
+      for (const f of filesToScan.slice(0, 50)) {
+        const res = await scanSingleTargetFile(f, rules);
+        results.push(res);
+      }
+
+      setScanResults(results);
+
+      const matchedFileCount = results.filter((r) => r.matchedRules.length > 0).length;
+      const totalMatchedRules = results.reduce((sum, r) => sum + r.matchedRules.length, 0);
+      const totalHitsAll = results.reduce((sum, r) => sum + r.totalHits, 0);
+      const primary = results[0];
 
       const verdict =
-        matchedRules.length > 0
-          ? `تطابق ${matchedRules.length} قاعدة YARA (${totalHits} مؤشر)`
-          : 'لا توجد تطابقات مع قواعد YARA النشطة';
-      onNotify(verdict, matchedRules.length > 0 ? 'warning' : 'success');
-      onRecordAudit({
-        id: `yara-${Date.now()}`,
-        fileName: `مسح YARA: ${file.name}`,
-        fileSize: formatBytes(file.size),
-        verdict,
-        score: matchedRules.length > 0 ? Math.max(20, 85 - matchedRules.length * 20) : 98,
-        risk: matchedRules.length > 0 ? 'مرتفع' : 'منخفض',
-        sha256,
-      });
+        matchedFileCount > 0
+          ? `فحص YARA: رصد ${totalMatchedRules} قاعدة متطابقة في ${matchedFileCount} من ${results.length} ملف (${totalHitsAll} مؤشر)`
+          : `فحص YARA: نظيف — 0 تطابقات عبر ${results.length} ملف (${rules.length} قاعدة)`;
+
+      onNotify(verdict, matchedFileCount > 0 ? 'warning' : 'success');
+      if (primary) {
+        onRecordAudit({
+          id: `yara-${Date.now()}`,
+          fileName: results.length > 1 ? `مسح YARA (${results.length} ملفات)` : `مسح YARA: ${primary.fileName}`,
+          fileSize: formatBytes(results.reduce((s, r) => s + r.fileSize, 0)),
+          verdict,
+          score: matchedFileCount > 0 ? Math.max(15, 90 - matchedFileCount * 20) : 98,
+          risk: matchedFileCount > 0 ? 'مرتفع' : 'منخفض',
+          sha256: primary.sha256,
+        });
+      }
     } catch (err: any) {
-      setError(err?.message || 'تعذر قراءة الملف أو تطبيق قواعد YARA؛ تأكد من صحة صياغة القاعدة والملف.');
+      setError(err?.message || 'تعذر قراءة الملفات أو تطبيق قواعد YARA؛ تأكد من صحة ملف .yar والملفات المرفوعة.');
     } finally {
       setScanning(false);
     }
   };
 
+  // Flatten scan results into visual table rows (matched hits + clean files)
+  const unifiedTableRows = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    const rows: Array<{
+      rowKey: string;
+      fileName: string;
+      fileSize: number;
+      sha256: string;
+      status: 'matched' | 'clean';
+      ruleName: string;
+      severity: string;
+      stringId: string;
+      kind: string;
+      offsetHex: string;
+      previewAscii: string;
+      hit: YaraMatchHit | null;
+    }> = [];
+
+    for (const fileRes of scanResults) {
+      if (fileRes.matchedRules.length === 0) {
+        rows.push({
+          rowKey: `${fileRes.sha256}-clean`,
+          fileName: fileRes.fileName,
+          fileSize: fileRes.fileSize,
+          sha256: fileRes.sha256,
+          status: 'clean',
+          ruleName: '—',
+          severity: 'نظيف',
+          stringId: '—',
+          kind: '—',
+          offsetHex: '—',
+          previewAscii: `تم فحص ${fileRes.rulesEvaluated} قاعدة بدون أي تطابق ضار`,
+          hit: null,
+        });
+      } else {
+        for (const mr of fileRes.matchedRules) {
+          if (mr.hits.length === 0) {
+            rows.push({
+              rowKey: `${fileRes.sha256}-${mr.ruleName}-cond`,
+              fileName: fileRes.fileName,
+              fileSize: fileRes.fileSize,
+              sha256: fileRes.sha256,
+              status: 'matched',
+              ruleName: mr.ruleName,
+              severity: mr.severity,
+              stringId: 'condition',
+              kind: 'rule',
+              offsetHex: '—',
+              previewAscii: mr.condition,
+              hit: null,
+            });
+          } else {
+            mr.hits.forEach((hit, idx) => {
+              rows.push({
+                rowKey: `${fileRes.sha256}-${mr.ruleName}-${hit.stringId}-${idx}`,
+                fileName: fileRes.fileName,
+                fileSize: fileRes.fileSize,
+                sha256: fileRes.sha256,
+                status: 'matched',
+                ruleName: mr.ruleName,
+                severity: mr.severity,
+                stringId: hit.stringId,
+                kind: hit.kind,
+                offsetHex: hit.offsetHex,
+                previewAscii: hit.previewAscii,
+                hit,
+              });
+            });
+          }
+        }
+      }
+    }
+
+    return rows.filter((r) => {
+      if (statusFilter === 'matched' && r.status !== 'matched') return false;
+      if (statusFilter === 'clean' && r.status !== 'clean') return false;
+      if (q) {
+        const hay = `${r.fileName} ${r.ruleName} ${r.stringId} ${r.offsetHex} ${r.previewAscii} ${r.sha256}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [scanResults, tableSearch, statusFilter]);
+
+  const ruleDistributionStats = useMemo(() => {
+    const counts = new Map<string, { ruleName: string; fileCount: number; hitCount: number; severity: string }>();
+    for (const fileRes of scanResults) {
+      for (const mr of fileRes.matchedRules) {
+        const prev = counts.get(mr.ruleName) || {
+          ruleName: mr.ruleName,
+          fileCount: 0,
+          hitCount: 0,
+          severity: mr.severity,
+        };
+        prev.fileCount += 1;
+        prev.hitCount += mr.hitCount;
+        counts.set(mr.ruleName, prev);
+      }
+    }
+    return Array.from(counts.values()).sort((a, b) => b.hitCount - a.hitCount);
+  }, [scanResults]);
+
+  const exportReportCsv = () => {
+    if (scanResults.length === 0) return;
+    const headers = ['FileName', 'FileSizeBytes', 'SHA256', 'MD5', 'Status', 'RuleName', 'Severity', 'StringID', 'MatchKind', 'OffsetHex', 'MatchedPreview'];
+    const lines = unifiedTableRows.map((r) => {
+      const fileMeta = scanResults.find((f) => f.sha256 === r.sha256);
+      return [
+        sanitizeCsvValue(r.fileName),
+        sanitizeCsvValue(r.fileSize),
+        sanitizeCsvValue(r.sha256),
+        sanitizeCsvValue(fileMeta?.md5 || ''),
+        sanitizeCsvValue(r.status === 'matched' ? 'DETECTED' : 'CLEAN'),
+        sanitizeCsvValue(r.ruleName),
+        sanitizeCsvValue(r.severity),
+        sanitizeCsvValue(r.stringId),
+        sanitizeCsvValue(r.kind),
+        sanitizeCsvValue(r.offsetHex),
+        sanitizeCsvValue(r.previewAscii),
+      ].join(',');
+    });
+    const csv = '\uFEFF' + [headers.join(','), ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `yara-scan-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onNotify(`تم تصدير تقرير فحص YARA بصيغة CSV (${unifiedTableRows.length} صف).`, 'success');
+  };
+
+  const exportReportJson = () => {
+    if (scanResults.length === 0) return;
+    const reportPayload = {
+      generatedAt: new Date().toISOString(),
+      scanner: 'YARA Pattern Scanner',
+      loadedYarDatabases: loadedYarFiles,
+      rulesEvaluatedCount: parsedRuleSummary.length,
+      filesScannedCount: scanResults.length,
+      filesMatchedCount: scanResults.filter((r) => r.matchedRules.length > 0).length,
+      results: scanResults,
+    };
+    const blob = new Blob([JSON.stringify(reportPayload, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `yara-scan-report-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onNotify('تم تصدير تقرير فحص YARA الكامل بصيغة JSON.', 'success');
+  };
+
+  const totalFilesScanned = scanResults.length;
+  const matchedFilesTotal = scanResults.filter((r) => r.matchedRules.length > 0).length;
+  const totalHitsAll = scanResults.reduce((s, r) => s + r.totalHits, 0);
+  const maxRuleHits = Math.max(1, ...ruleDistributionStats.map((x) => x.hitCount));
+
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="rounded-2xl bg-gray-900/95 border border-gray-800 p-6 space-y-5">
+      <div className="rounded-xl bg-gray-900 border border-gray-800 p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="text-xs font-mono text-[#D4AF37]">
-              Binary & String Pattern Scanner · YARA
-            </div>
-            <h2 className="text-xl font-bold text-white">
-              ماسح قواعد YARA للملفات
+            <h2 className="text-lg font-bold text-white">
+              ماسح قواعد YARA (YARA Pattern Scanner)
             </h2>
             <p className="text-xs text-gray-400">
-              فحص بايتات الملف محلياً لمطابقة القواعد النصية وأنماط Hex (<span className="font-mono text-gray-300">??</span>) وRegex مع إظهار الإزاحات.
+              ارفع ملفات قواعد بيانات YARA (<span className="font-mono text-gray-300">.yar / .yara</span>) وافحص ملفاً واحداً أو عدة ملفات لاكتشاف الأنماط الضارة المعروفة (Hex، نصوص ASCII/Wide، وتعابير Regex) مع جدول نتائج مرئي وتصدير التقرير.
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {YARA_PRESETS.map((preset) => (
               <button
                 key={preset.label}
                 type="button"
-                onClick={() => setRuleText(preset.ruleText)}
-                className="px-3 py-1.5 rounded-xl bg-gray-950 hover:bg-gray-800 border border-gray-800 text-[11px] text-gray-200 cursor-pointer"
+                onClick={() => {
+                  setRuleText(preset.ruleText);
+                  setLoadedYarFiles([]);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-xs text-gray-200 cursor-pointer whitespace-nowrap shrink-0"
               >
                 {preset.label}
               </button>
@@ -1043,135 +1568,362 @@ export const YaraPatternScannerLab: React.FC<ExtendedLabProps> = ({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div className="lg:col-span-7 space-y-2">
-            <label className="text-xs font-bold text-gray-300 block">
-              محرر قواعد YARA (أو أنماط سطرية مباشرة / Hex / Regex):
-            </label>
+          {/* Left/Primary: .yar Rule Database Upload + Editor */}
+          <div className="lg:col-span-7 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-bold text-gray-300">
+                قاعدة بيانات قواعد YARA ({parsedRuleSummary.length} قاعدة نشطة)
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="px-3 py-1.5 rounded-lg bg-[#D4AF37] hover:opacity-90 text-gray-950 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>رفع ملفات .yar</span>
+                  <input
+                    type="file"
+                    accept=".yar,.yara,.txt"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void handleYarDatabaseUpload(e.target.files, false);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                <label className="px-3 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-700 text-gray-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
+                  <Plus className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>دمج ملف .yar إضافي</span>
+                  <input
+                    type="file"
+                    accept=".yar,.yara,.txt"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void handleYarDatabaseUpload(e.target.files, true);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {loadedYarFiles.length > 0 && (
+              <div className="px-3 py-2 rounded-lg bg-gray-950 border border-gray-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-300">
+                <div className="flex flex-wrap items-center gap-2 font-mono">
+                  <FileText className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                  <span>
+                    ملفات القواعد المحملة: {loadedYarFiles.map((f) => `${f.name} (${f.ruleCount})`).join(' · ')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoadedYarFiles([]);
+                    setRuleText('');
+                  }}
+                  className="text-red-400 hover:underline cursor-pointer inline-flex items-center gap-1 shrink-0"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>تفريغ</span>
+                </button>
+              </div>
+            )}
+
             <textarea
               dir="ltr"
               rows={11}
               value={ruleText}
               onChange={(e) => setRuleText(e.target.value)}
-              className="w-full p-4 rounded-2xl bg-gray-950 border border-gray-800 focus:border-[#D4AF37] text-xs font-mono text-emerald-300 outline-none leading-relaxed"
+              placeholder="ارفع ملف قواعد .yar من الأعلى أو الصق قواعد YARA هنا..."
+              className="w-full p-4 rounded-xl bg-gray-950 border border-gray-800 focus:border-[#D4AF37] text-xs font-mono text-emerald-300 outline-none leading-relaxed"
             />
           </div>
 
-          <div className="lg:col-span-5 flex flex-col justify-between gap-4 p-5 rounded-2xl bg-gray-950 border border-gray-800">
+          {/* Right: Target Files Upload + Scan Trigger */}
+          <div className="lg:col-span-5 flex flex-col justify-between gap-4 p-5 rounded-xl bg-gray-950 border border-gray-800">
             <div className="space-y-3">
-              <div className="text-xs font-bold text-white flex items-center gap-2">
-                <Upload className="w-4 h-4 text-[#D4AF37]" />
-                <span>اختر ملفاً حقيقياً للفحص</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold text-white">الملفات المستهدفة للفحص</div>
+                {targetFiles.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetFiles([]);
+                      setScanResults([]);
+                    }}
+                    className="text-[11px] text-gray-400 hover:text-white cursor-pointer"
+                  >
+                    مسح القائمة ({targetFiles.length})
+                  </button>
+                )}
               </div>
-              <label className="flex flex-col items-center justify-center p-6 rounded-2xl border-2 border-dashed border-gray-700 hover:border-[#D4AF37] bg-gray-900/60 cursor-pointer text-center transition">
+
+              <label className="flex flex-col items-center justify-center p-6 rounded-xl border-2 border-dashed border-gray-700 hover:border-[#D4AF37] bg-gray-900/60 cursor-pointer text-center transition">
                 <Upload className="w-7 h-7 text-[#D4AF37] mb-2" />
                 <span className="text-xs font-bold text-white">
-                  {selectedFile ? selectedFile.name : 'اضغط لاختيار أي ملف (EXE, PDF, PS1, ZIP, PNG...)'}
+                  {targetFiles.length === 0
+                    ? 'ارفع ملفاً أو عدة ملفات للفحص (EXE, DLL, PDF, PS1, ZIP...)'
+                    : `تم اختيار ${targetFiles.length} ملف (${formatBytes(targetFiles.reduce((s, f) => s + f.size, 0))})`}
                 </span>
-                {selectedFile && (
-                  <span className="text-[11px] text-gray-400 font-mono mt-1">
-                    {formatBytes(selectedFile.size)}
-                  </span>
-                )}
+                <span className="text-[11px] text-gray-400 mt-1">
+                  يدعم الفحص الدفعي حتى 50 ملفاً داخل المتصفح مباشرة
+                </span>
                 <input
                   type="file"
+                  multiple
                   className="hidden"
                   onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      setSelectedFile(f);
-                      void runYaraScan(f);
+                    const picked = e.target.files ? Array.from(e.target.files) : [];
+                    if (picked.length > 0) {
+                      setTargetFiles(picked);
+                      void runYaraScan(picked);
                     }
+                    e.target.value = '';
                   }}
                 />
               </label>
+
+              {targetFiles.length > 0 && (
+                <div className="max-h-32 overflow-y-auto divide-y divide-gray-800 border border-gray-800 rounded-lg bg-gray-900/50">
+                  {targetFiles.map((f, idx) => (
+                    <div key={`${f.name}-${idx}`} className="px-3 py-1.5 flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-gray-200 truncate" dir="ltr">{f.name}</span>
+                      <span className="text-gray-400 tabular-nums shrink-0">{formatBytes(f.size)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button
               type="button"
-              disabled={scanning || !selectedFile}
+              disabled={scanning || targetFiles.length === 0 || parsedRuleSummary.length === 0}
               onClick={() => void runYaraScan()}
-              className="w-full py-3 rounded-xl bg-[#D4AF37] hover:opacity-90 disabled:opacity-50 text-gray-950 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-lg bg-[#D4AF37] hover:opacity-90 disabled:opacity-50 text-gray-950 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
             >
               {scanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              <span>{scanning ? 'جاري المسح البايتي...' : 'تشغيل مسح YARA الآن'}</span>
+              <span>{scanning ? 'جاري فحص الملفات بقواعد YARA...' : 'تشغيل فحص YARA الآن'}</span>
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
+          <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
             <span>{error}</span>
           </div>
         )}
       </div>
 
-      {scanResult && (
-        <div className="rounded-3xl bg-gray-900 border border-gray-800 p-6 space-y-5 shadow-xl">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-gray-800">
-            <div>
-              <div className="text-sm font-bold text-white">
-                نتائج مسح YARA للملف: <span className="text-[#D4AF37] font-mono">{scanResult.fileName}</span>
+      {/* Visual Results & Structured Table */}
+      {scanResults.length > 0 && (
+        <div className="space-y-5">
+          {/* KPI Strip + Export Actions */}
+          <div className="rounded-xl bg-gray-900 border border-gray-800 p-5 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-gray-800">
+              <div>
+                <h3 className="text-sm font-bold text-white">ملخص نتائج مسح YARA</h3>
+                <div className="text-xs font-mono text-gray-400 mt-0.5 tabular-nums">
+                  {totalFilesScanned} ملف مفحوص · {parsedRuleSummary.length} قاعدة مقيّمة · {totalHitsAll} تطابق
+                </div>
               </div>
-              <div className="text-[11px] font-mono text-gray-400 mt-1 break-all">
-                SHA-256: {scanResult.sha256} • {formatBytes(scanResult.fileSize)} • {scanResult.scannedMs}ms
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={exportReportCsv}
+                  className="px-4 py-2 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-700 text-gray-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>تصدير التقرير (CSV)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={exportReportJson}
+                  className="px-4 py-2 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-700 text-gray-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>تصدير التقرير (JSON)</span>
+                </button>
               </div>
             </div>
-            <div
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border ${
-                scanResult.matchedRules.length > 0
-                  ? 'bg-red-500/15 border-red-500/40 text-red-300'
-                  : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-              }`}
-            >
-              {scanResult.matchedRules.length > 0
-                ? `تم رصد ${scanResult.matchedRules.length} قاعدة متطابقة (${scanResult.totalHits} موضع)`
-                : `نظيف (0 تطابقات من ${scanResult.rulesEvaluated} قاعدة)`}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 rounded-xl bg-gray-950 border border-gray-800 space-y-1">
+                <div className="text-xs text-gray-400">الملفات المفحوصة</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-white">{totalFilesScanned}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-gray-950 border border-gray-800 space-y-1">
+                <div className="text-xs text-gray-400">ملفات مطابقة لقواعد ضارة</div>
+                <div className={`text-2xl font-bold font-mono tabular-nums ${matchedFilesTotal > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {matchedFilesTotal}
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-gray-950 border border-gray-800 space-y-1">
+                <div className="text-xs text-gray-400">ملفات نظيفة</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400">
+                  {totalFilesScanned - matchedFilesTotal}
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-gray-950 border border-gray-800 space-y-1">
+                <div className="text-xs text-gray-400">إجمالي المواضع المكتشفة</div>
+                <div className="text-2xl font-bold font-mono tabular-nums text-[#D4AF37]">{totalHitsAll}</div>
+              </div>
             </div>
+
+            {/* Visual Distribution Bar Chart of Matched Rules */}
+            {ruleDistributionStats.length > 0 && (
+              <div className="space-y-2.5 pt-2">
+                <div className="text-xs font-bold text-gray-300">التوزيع المرئي للقواعد المكتشفة</div>
+                <div className="space-y-2">
+                  {ruleDistributionStats.map((stat) => {
+                    const widthPct = Math.max(8, Math.round((stat.hitCount / maxRuleHits) * 100));
+                    return (
+                      <div key={stat.ruleName} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-red-300 font-bold">{stat.ruleName}</span>
+                          <span className="text-gray-400 tabular-nums">
+                            {stat.fileCount} ملف · {stat.hitCount} موضع
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-gray-950 border border-gray-800 overflow-hidden">
+                          <div
+                            className="h-full bg-red-500/80"
+                            style={{ width: `${widthPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
-          {scanResult.matchedRules.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-gray-950 border border-gray-800 text-center text-xs text-emerald-300">
-              لم تتطابق بايتات الملف مع شروط القواعد النشطة. يمكنك إضافة توقيعات مخصصة وإعادة الفحص.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {scanResult.matchedRules.map((mr) => (
-                <div key={mr.ruleName} className="rounded-2xl bg-gray-950 border border-red-500/35 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold font-mono text-red-300">RULE: {mr.ruleName}</span>
-                    <span className="text-[11px] font-mono text-gray-400">
-                      Condition: {mr.condition} • Hits: {mr.hitCount}
-                    </span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-right">
-                      <thead className="text-[10px] font-mono text-gray-400 border-b border-gray-800">
-                        <tr>
-                          <th className="py-2 px-2">المعرف</th>
-                          <th className="py-2 px-2">النوع</th>
-                          <th className="py-2 px-2">الإزاحة Offset</th>
-                          <th className="py-2 px-2">Hex</th>
-                          <th className="py-2 px-2">معاينة ASCII</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-800/70 font-mono text-[11px]">
-                        {mr.hits.map((hit, i) => (
-                          <tr key={`${hit.stringId}-${i}`}>
-                            <td className="py-2 px-2 text-[#D4AF37]">{hit.stringId}</td>
-                            <td className="py-2 px-2 text-gray-400">{hit.kind}</td>
-                            <td className="py-2 px-2 text-emerald-300">{hit.offsetHex}</td>
-                            <td className="py-2 px-2 text-gray-300">{hit.matchedHex}</td>
-                            <td className="py-2 px-2 text-white break-all">{hit.previewAscii}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+          {/* Structured Visual Results Table */}
+          <div className="rounded-xl bg-gray-900 border border-gray-800 p-5 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <Filter className="w-4 h-4 text-[#D4AF37]" />
+                <span>جدول نتائج الفحص ({unifiedTableRows.length} سجل)</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[220px]">
+                  <Search className="w-3.5 h-3.5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={tableSearch}
+                    onChange={(e) => setTableSearch(e.target.value)}
+                    placeholder="تصفية بالملف أو اسم القاعدة أو Offset..."
+                    className="w-full pr-9 pl-3 py-1.5 rounded-lg bg-gray-950 border border-gray-800 text-xs text-white focus:border-[#D4AF37] outline-none"
+                  />
                 </div>
-              ))}
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-gray-950 border border-gray-800">
+                  {(
+                    [
+                      { id: 'all', label: 'الكل' },
+                      { id: 'matched', label: 'تطابقات ضارة' },
+                      { id: 'clean', label: 'نظيف' },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setStatusFilter(f.id)}
+                      className={`px-2.5 py-1 rounded text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 ${
+                        statusFilter === f.id ? 'bg-[#D4AF37] text-gray-950' : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+
+            <div className="overflow-x-auto border border-gray-800 rounded-xl">
+              <table className="w-full text-xs text-right">
+                <thead className="bg-gray-950 text-gray-400 border-b border-gray-800 font-mono">
+                  <tr>
+                    <th className="py-2.5 px-3">الملف</th>
+                    <th className="py-2.5 px-3">الحالة</th>
+                    <th className="py-2.5 px-3">القاعدة</th>
+                    <th className="py-2.5 px-3">المعرّف</th>
+                    <th className="py-2.5 px-3">الإزاحة Offset</th>
+                    <th className="py-2.5 px-3">المعاينة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800 font-mono text-[11px]">
+                  {unifiedTableRows.map((row) => (
+                    <tr
+                      key={row.rowKey}
+                      onClick={() => {
+                        if (row.hit) {
+                          setSelectedHitDetail({
+                            fileName: row.fileName,
+                            ruleName: row.ruleName,
+                            hit: row.hit,
+                          });
+                        }
+                      }}
+                      className={`transition ${row.hit ? 'cursor-pointer hover:bg-gray-950/70' : ''}`}
+                    >
+                      <td className="py-2.5 px-3 text-white max-w-[180px] truncate" dir="ltr">
+                        {row.fileName}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {row.status === 'matched' ? (
+                          <span className="inline-flex items-center gap-1 text-red-400 font-bold">
+                            <ShieldAlert className="w-3.5 h-3.5" />
+                            <span>متطابق</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>نظيف</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-red-300 font-bold">{row.ruleName}</td>
+                      <td className="py-2.5 px-3 text-[#D4AF37]">{row.stringId}</td>
+                      <td className="py-2.5 px-3 text-emerald-300 tabular-nums">{row.offsetHex}</td>
+                      <td className="py-2.5 px-3 text-gray-300 max-w-xs truncate" dir="ltr">
+                        {row.previewAscii}
+                      </td>
+                    </tr>
+                  ))}
+                  {unifiedTableRows.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-gray-500 font-sans text-xs">
+                        لا توجد نتائج مطابقة لعوامل التصفية الحالية.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {selectedHitDetail && (
+              <div className="p-4 rounded-xl bg-gray-950 border border-[#D4AF37]/40 space-y-2 text-xs font-mono">
+                <div className="flex items-center justify-between text-[#D4AF37] font-bold">
+                  <span>
+                    {selectedHitDetail.fileName} · {selectedHitDetail.ruleName} ({selectedHitDetail.hit.stringId}) @ {selectedHitDetail.hit.offsetHex}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHitDetail(null)}
+                    className="text-gray-400 hover:text-white cursor-pointer"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+                <div className="text-[11px] text-gray-300 break-all" dir="ltr">
+                  HEX: {selectedHitDetail.hit.matchedHex}
+                </div>
+                <div className="text-[11px] text-emerald-300 break-all" dir="ltr">
+                  ASCII: {selectedHitDetail.hit.previewAscii}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

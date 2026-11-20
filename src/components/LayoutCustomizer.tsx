@@ -52,6 +52,7 @@ import {
   MailCheck,
   FileCode2,
   Network,
+  ScrollText,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -97,7 +98,8 @@ export type AppTabId =
   | 'dns_email_auditor'
   | 'yara_scanner'
   | 'jwt_inspector'
-  | 'pcap_inspector';
+  | 'pcap_inspector'
+  | 'log_analyzer';
 
 export type LayoutStructure =
   | 'top'
@@ -176,7 +178,7 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'archive_extractor', label: 'فحص الأرشيف (ZIP)', shortLabel: 'الأرشيف', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
   { id: 'binary_lab', label: 'تحليل الباينري (PE/ELF)', shortLabel: 'الباينري', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
   { id: 'apk', label: 'تحليل حزم APK', shortLabel: 'APK', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
-  { id: 'yara_scanner', label: 'ماسح قواعد YARA', shortLabel: 'ماسح YARA', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'yara_scanner', label: 'ماسح قواعد YARA (YARA Pattern Scanner)', shortLabel: 'ماسح YARA', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
   { id: 'comparison', label: 'مقارنة الأدلة', shortLabel: 'المقارنة', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
 
   // 3. الشبكات والاستخبارات
@@ -199,6 +201,7 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'malware_hash', label: 'فحص بصمات الفيروسات', shortLabel: 'فحص Hash', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
   { id: 'deobfuscator', label: 'فك تشويه السكربتات', shortLabel: 'السكربتات', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
   { id: 'jwt_inspector', label: 'محلل رموز التوثيق (JWT)', shortLabel: 'محلل JWT', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
+  { id: 'log_analyzer', label: 'محلل السجلات الحقيقي (Real Log Analyzer)', shortLabel: 'محلل السجلات', group: 'security', groupLabel: 'الأدلة والهوية والبرمجيات' },
 
   // 5. المساعد والنظام
   { id: 'live_voice', label: 'المساعد الذكي والصوتي', shortLabel: 'المساعد الحي', group: 'system', groupLabel: 'المساعد والنظام' },
@@ -277,6 +280,8 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <KeyRound className={className} />;
     case 'pcap_inspector':
       return <Network className={className} />;
+    case 'log_analyzer':
+      return <ScrollText className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:

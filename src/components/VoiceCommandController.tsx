@@ -213,6 +213,11 @@ const TAB_VOICE_ROUTES: Array<{ tab: AppTabId; labelAr: string; keywords: string
     keywords: ['حزم الشبكه', 'محلل الحزم', 'بيكاب', 'pcap'],
   },
   {
+    tab: 'log_analyzer',
+    labelAr: 'محلل السجلات الحقيقي (Real Log Analyzer)',
+    keywords: ['محلل السجلات', 'تحليل السجلات', 'السجلات', 'access log', 'log analyzer'],
+  },
+  {
     tab: 'email',
     labelAr: 'تحليل البريد الإلكتروني',
     keywords: ['تحليل البريد', 'البريد', 'email'],

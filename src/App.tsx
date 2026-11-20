@@ -198,6 +198,7 @@ import {
   JwtTokenForensicInspectorLab,
   PcapPacketInspectorLab,
 } from './components/ForensicExtendedLabs';
+import { RealLogAnalyzerLab } from './components/RealLogAnalyzerLab';
 import {
   computeSovereignAccessState,
   isPlatformAdminOrOwner,
@@ -476,7 +477,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [showVoiceCommandHud, setShowVoiceCommandHud] = useState<boolean>(false);
   const lastPickedFileRef = React.useRef<File | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector' | 'log_analyzer'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -14836,6 +14837,25 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {isTabVisible('pcap_inspector') && (
           <PcapPacketInspectorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('log_analyzer') && (
+          <RealLogAnalyzerLab
             onNotify={notifyStatus}
             onRecordAudit={(p) =>
               void saveAuditLog({
