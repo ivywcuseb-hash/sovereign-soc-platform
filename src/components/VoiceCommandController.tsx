@@ -218,6 +218,11 @@ const TAB_VOICE_ROUTES: Array<{ tab: AppTabId; labelAr: string; keywords: string
     keywords: ['محلل السجلات', 'تحليل السجلات', 'السجلات', 'access log', 'log analyzer'],
   },
   {
+    tab: 'exif_inspector',
+    labelAr: 'مستخرج البيانات الوصفية (EXIF & Metadata Inspector)',
+    keywords: ['مستخرج البيانات', 'البيانات الوصفيه', 'exif', 'metadata'],
+  },
+  {
     tab: 'email',
     labelAr: 'تحليل البريد الإلكتروني',
     keywords: ['تحليل البريد', 'البريد', 'email'],

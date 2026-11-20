@@ -53,6 +53,7 @@ import {
   FileCode2,
   Network,
   ScrollText,
+  FileImage,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -99,7 +100,8 @@ export type AppTabId =
   | 'yara_scanner'
   | 'jwt_inspector'
   | 'pcap_inspector'
-  | 'log_analyzer';
+  | 'log_analyzer'
+  | 'exif_inspector';
 
 export type LayoutStructure =
   | 'top'
@@ -179,6 +181,7 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'binary_lab', label: 'تحليل الباينري (PE/ELF)', shortLabel: 'الباينري', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
   { id: 'apk', label: 'تحليل حزم APK', shortLabel: 'APK', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
   { id: 'yara_scanner', label: 'ماسح قواعد YARA (YARA Pattern Scanner)', shortLabel: 'ماسح YARA', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
+  { id: 'exif_inspector', label: 'مستخرج البيانات الوصفية (EXIF & Metadata Inspector)', shortLabel: 'البيانات الوصفية', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
   { id: 'comparison', label: 'مقارنة الأدلة', shortLabel: 'المقارنة', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
 
   // 3. الشبكات والاستخبارات
@@ -282,6 +285,8 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <Network className={className} />;
     case 'log_analyzer':
       return <ScrollText className={className} />;
+    case 'exif_inspector':
+      return <FileImage className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:
