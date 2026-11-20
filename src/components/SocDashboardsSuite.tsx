@@ -312,10 +312,15 @@ export const CyberTelemetryNetworkDashboard: React.FC<
     const w = 680;
     const h = 180;
     const padY = 16;
-    const pts = samples.length > 1 ? samples : [
-      { timeLabel: '00:00:00', ingressKb: 0, egressKb: 0, rttMs: 0, requestsCount: 0 },
-      { timeLabel: '00:00:02', ingressKb: 1, egressKb: 0.4, rttMs: 0, requestsCount: 1 },
-    ];
+    const pts =
+      samples.length >= 2
+        ? samples
+        : samples.length === 1
+        ? [samples[0], samples[0]]
+        : [
+            { timeLabel: '—', ingressKb: 0, egressKb: 0, rttMs: 0, requestsCount: 0 },
+            { timeLabel: '—', ingressKb: 0, egressKb: 0, rttMs: 0, requestsCount: 0 },
+          ];
     const maxVal = Math.max(5, ...pts.map((p) => Math.max(p.ingressKb, p.egressKb)));
     const mapX = (idx: number) => (idx / Math.max(1, pts.length - 1)) * w;
     const mapY = (val: number) => h - padY - (val / maxVal) * (h - padY * 2);

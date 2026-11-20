@@ -321,7 +321,7 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
 
     setIsModelSpeaking(true);
     speechPumpIntervalRef.current = window.setInterval(() => {
-      speakerLevelRef.current = 0.28 + Math.random() * 0.25;
+      speakerLevelRef.current = 0.32 + 0.14 * Math.abs(Math.sin(Date.now() / 160));
       // Android Chrome pause workaround
       if (synth.paused) synth.resume();
     }, 120);
@@ -556,9 +556,13 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
         replyText = payload.replyText;
         audioPcmBase64 = payload.audioPcmBase64 || null;
       } else {
+        const errDetail = payload?.error ? `${payload.error} ` : '';
+        if (payload?.error) {
+          setErrorBanner(payload.error);
+        }
         // Offline / emergency local real-data answer
         const fallbackQuery = params.text || params.transcript || 'حالة المنصة';
-        replyText = buildClientEmergencyRealReply(fallbackQuery, siteDataSnapshot);
+        replyText = `${errDetail}${buildClientEmergencyRealReply(fallbackQuery, siteDataSnapshot)}`.trim();
       }
 
       appendOrMergeTranscript('assistant', replyText);
@@ -586,18 +590,36 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
     }
   };
 
+  const isServerlessHosting = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    const host = window.location.hostname.toLowerCase();
+    return (
+      host === 'sovqs.vercel.app' ||
+      host === 'sovsoc.vercel.app' ||
+      host.endsWith('.vercel.app') ||
+      host.endsWith('.github.io')
+    );
+  };
+
   const startLiveVoiceSession = async () => {
     if (connectionState === 'connecting' || connectionState === 'live') return;
     setErrorBanner(null);
     primeSpeechSynthesisOnGesture();
-    setConnectionState('connecting');
 
-    if (!navigator.mediaDevices?.getUserMedia) {
+    // On Vercel / static serverless hosting, skip WebSocket and activate HTTP /api/live-voice-turn directly
+    if (isServerlessHosting() || !navigator.mediaDevices?.getUserMedia) {
       setConnectionState('fallback_ptt');
+      appendOrMergeTranscript(
+        'system',
+        'تم تفعيل وضع المحادثة الصوتية عبر المسار السحابي HTTP (/api/live-voice-turn): اضغط زر التحدث أو أرسل رسالتك للرد النصي والصوتي.'
+      );
+      onNotify('المساعد الصوتي نشط عبر المسار السحابي /api/live-voice-turn.', 'success');
       return;
     }
 
+    setConnectionState('connecting');
     let openedLive = false;
+    let wsTimeoutId: number | null = null;
 
     try {
       await ensureOutputAudioContext();
@@ -616,6 +638,17 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       const wsUrl = `${wsProto}//${window.location.host}/api/live-voice`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+
+      wsTimeoutId = window.setTimeout(() => {
+        if (!openedLive) {
+          cleanupLiveResources();
+          setConnectionState('fallback_ptt');
+          appendOrMergeTranscript(
+            'system',
+            'تم التحويل التلقائي إلى مسار HTTP Serverless (/api/live-voice-turn) لضمان استقرار المحادثة الصوتية.'
+          );
+        }
+      }, 2500);
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const inputCtx = new AudioCtx({ sampleRate: 16000 });
@@ -667,6 +700,10 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'ready') {
+            if (wsTimeoutId !== null) {
+              window.clearTimeout(wsTimeoutId);
+              wsTimeoutId = null;
+            }
             openedLive = true;
             isStreamingRef.current = true;
             setConnectionState('live');
@@ -696,14 +733,22 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
           } else if (msg.type === 'turn_complete') {
             finalizeCurrentPartialTranscripts();
           } else if (msg.type === 'error') {
+            if (wsTimeoutId !== null) {
+              window.clearTimeout(wsTimeoutId);
+              wsTimeoutId = null;
+            }
             // Switch cleanly into Serverless PTT + Browser Voice Synthesis if Live API key is absent
             cleanupLiveResources();
             setConnectionState('fallback_ptt');
             appendOrMergeTranscript(
               'system',
-              'تم التحويل التلقائي إلى وضع المحادثة الصوتية بالبيانات الحقيقية (اضغط للتحدث أو اكتب بالأسفل).'
+              'تم التحويل التلقائي إلى وضع المحادثة الصوتية عبر المسار السحابي (/api/live-voice-turn).'
             );
           } else if (msg.type === 'closed') {
+            if (wsTimeoutId !== null) {
+              window.clearTimeout(wsTimeoutId);
+              wsTimeoutId = null;
+            }
             finalizeCurrentPartialTranscripts();
             cleanupLiveResources();
             if (!openedLive) {
@@ -718,12 +763,16 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       };
 
       ws.onerror = () => {
+        if (wsTimeoutId !== null) {
+          window.clearTimeout(wsTimeoutId);
+          wsTimeoutId = null;
+        }
         if (!openedLive) {
           cleanupLiveResources();
           setConnectionState('fallback_ptt');
           appendOrMergeTranscript(
             'system',
-            'المساعد جاهز الآن على Vercel: اضغط للتحدث بصوتك أو أرسل رسالتك وسيتم الرد عليك صوتياً من بيانات موقعك الحقيقية.'
+            'المساعد جاهز الآن عبر HTTP (/api/live-voice-turn): اضغط للتحدث بصوتك أو أرسل رسالتك وسيتم الرد عليك صوتياً.'
           );
         } else {
           cleanupLiveResources();
@@ -732,6 +781,10 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
       };
 
       ws.onclose = () => {
+        if (wsTimeoutId !== null) {
+          window.clearTimeout(wsTimeoutId);
+          wsTimeoutId = null;
+        }
         if (!openedLive) {
           cleanupLiveResources();
           setConnectionState('fallback_ptt');
@@ -742,12 +795,16 @@ export const LiveVoiceAssistantLab: React.FC<LiveVoiceAssistantLabProps> = ({
         }
       };
     } catch (err: any) {
+      if (wsTimeoutId !== null) {
+        window.clearTimeout(wsTimeoutId);
+        wsTimeoutId = null;
+      }
       cleanupLiveResources();
       if (err?.name === 'NotAllowedError') {
-        setConnectionState('error');
-        const msg = 'تم رفض إذن الميكروفون. يرجى السماح للمتصفح بالوصول إلى الميكروفون أو استخدام المحادثة النصية مع الرد الصوتي بالأسفل.';
+        setConnectionState('fallback_ptt');
+        const msg = 'تم رفض إذن الميكروفون؛ يمكنك استخدام المحادثة النصية مع الرد الصوتي بالأسفل عبر /api/live-voice-turn.';
         setErrorBanner(msg);
-        onNotify(msg, 'error');
+        onNotify(msg, 'warning');
       } else {
         setConnectionState('fallback_ptt');
       }

@@ -16,6 +16,7 @@ import {
   Sparkles,
   Columns,
   Shield,
+  ShieldCheck,
   FileSearch,
   Briefcase,
   History,
@@ -101,7 +102,11 @@ export type AppTabId =
   | 'jwt_inspector'
   | 'pcap_inspector'
   | 'log_analyzer'
-  | 'exif_inspector';
+  | 'exif_inspector'
+  | 'live_dns_inspector'
+  | 'iq_domain_auditor'
+  | 'ip_isp_asn_lookup'
+  | 'phishing_url_inspector';
 
 export type LayoutStructure =
   | 'top'
@@ -185,6 +190,10 @@ export const NAV_TABS_META: NavTabMeta[] = [
   { id: 'comparison', label: 'مقارنة الأدلة', shortLabel: 'المقارنة', group: 'files', groupLabel: 'تحليل الملفات والوسائط' },
 
   // 3. الشبكات والاستخبارات
+  { id: 'iq_domain_auditor', label: 'فاحص أمان النطاقات العراقية (IQ Domain Security Auditor)', shortLabel: 'أمان النطاقات .iq', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'live_dns_inspector', label: 'فاحص سجلات DNS المباشر (Live DNS Inspector)', shortLabel: 'DNS المباشر', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'ip_isp_asn_lookup', label: 'فاحص IP ومزود الخدمة (IP Intelligence & ISP/ASN Lookup)', shortLabel: 'فحص IP/ASN', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
+  { id: 'phishing_url_inspector', label: 'كاشف الروابط الاحتيالية ومحلل البنية (Phishing & URL Deep Inspector)', shortLabel: 'كاشف الروابط', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
   { id: 'dns_email_auditor', label: 'أمان النطاقات (DNS/SPF)', shortLabel: 'فحص DNS/SPF', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
   { id: 'email', label: 'تحليل ترويسة البريد', shortLabel: 'البريد', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
   { id: 'ssl_inspector', label: 'فحص شهادات SSL/TLS', shortLabel: 'SSL/TLS', group: 'network', groupLabel: 'الشبكات والاستخبارات' },
@@ -287,6 +296,14 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <ScrollText className={className} />;
     case 'exif_inspector':
       return <FileImage className={className} />;
+    case 'live_dns_inspector':
+      return <Globe className={className} />;
+    case 'iq_domain_auditor':
+      return <ShieldCheck className={className} />;
+    case 'ip_isp_asn_lookup':
+      return <Network className={className} />;
+    case 'phishing_url_inspector':
+      return <ShieldAlert className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:

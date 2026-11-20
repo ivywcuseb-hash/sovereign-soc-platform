@@ -200,6 +200,10 @@ import {
 } from './components/ForensicExtendedLabs';
 import { RealLogAnalyzerLab } from './components/RealLogAnalyzerLab';
 import { ExifMetadataInspectorLab } from './components/ExifMetadataInspectorLab';
+import { LiveDnsInspectorLab } from './components/LiveDnsInspectorLab';
+import { IqDomainSecurityAuditorLab } from './components/IqDomainSecurityAuditorLab';
+import { IpIntelligenceAsnLookupLab } from './components/IpIntelligenceAsnLookupLab';
+import { PhishingUrlDeepInspectorLab } from './components/PhishingUrlDeepInspectorLab';
 import { EvidenceDailyChart } from './components/EvidenceDailyChart';
 import {
   computeSovereignAccessState,
@@ -479,7 +483,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [showVoiceCommandHud, setShowVoiceCommandHud] = useState<boolean>(false);
   const lastPickedFileRef = React.useRef<File | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector' | 'log_analyzer' | 'exif_inspector'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector' | 'log_analyzer' | 'exif_inspector' | 'live_dns_inspector' | 'iq_domain_auditor' | 'ip_isp_asn_lookup' | 'phishing_url_inspector'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -5798,6 +5802,24 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       setLiveFeedsResult(data);
       setLiveFeedsCountdownSec(liveFeedsIntervalSec);
 
+      if ((data.stats?.activeSourcesOk ?? 0) === 0) {
+        const sourceErrors = Array.isArray(data.sourceStatuses)
+          ? data.sourceStatuses
+              .filter((s: any) => s.status === 'error')
+              .map((s: any) => `${s.name}: ${s.error || 'تعذر الاتصال'}`)
+              .slice(0, 3)
+              .join(' | ')
+          : '';
+        const failMsg = sourceErrors
+          ? `فشلت جميع مصادر التغذية الحية (${data.stats?.activeSourcesTotal || 0}): ${sourceErrors}`
+          : 'تعذر جلب أي بيانات حقيقية من مصادر التغذية المفتوحة المحددة.';
+        setLiveFeedsError(failMsg);
+        if (!isAutoCycle) {
+          notifyStatus(failMsg, 'error');
+        }
+        return;
+      }
+
       // Persist newly discovered critical/high items into Operations Log & Threats Counter without duplicates
       const items: any[] = Array.isArray(data.items) ? data.items : [];
       const freshNotable = items.filter(
@@ -6011,7 +6033,13 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         body: JSON.stringify({ query: searchQuery })
       });
       const parsed = await safeReadJsonResponse(res);
-      const data = parsed.data || { result: 'تعذر الوصول لخدمة البحث الخلفية حالياً.', sources: [] };
+      if (!res.ok || !parsed.isJson) {
+        const errMsg = parsed.data?.error || 'تعذر الوصول لخدمة البحث الخلفية حالياً.';
+        notifyStatus(errMsg, 'error');
+        setSearchResult({ result: errMsg, sources: [], internalResults: internal });
+        return;
+      }
+      const data = parsed.data || { result: 'لم يتم العثور على نتائج.', sources: [] };
       setSearchResult({ ...data, internalResults: internal });
     } catch (err) {
       console.error('Search error:', err);
@@ -6876,6 +6904,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
               currentInvestigationId={currentInvestigationId}
               loading={evidenceLoading}
               onOpenEvidenceVault={() => handleSelectTab('evidence')}
+              onEvidenceAdded={() => {
+                void fetchEvidence();
+                void fetchDashboardStats();
+              }}
               onNotify={notifyStatus}
             />
 
@@ -14887,6 +14919,82 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
         {isTabVisible('exif_inspector') && (
           <ExifMetadataInspectorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('live_dns_inspector') && (
+          <LiveDnsInspectorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('iq_domain_auditor') && (
+          <IqDomainSecurityAuditorLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('ip_isp_asn_lookup') && (
+          <IpIntelligenceAsnLookupLab
+            onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('phishing_url_inspector') && (
+          <PhishingUrlDeepInspectorLab
             onNotify={notifyStatus}
             onRecordAudit={(p) =>
               void saveAuditLog({

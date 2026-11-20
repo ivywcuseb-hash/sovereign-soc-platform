@@ -51,6 +51,7 @@ interface EvidenceDailyChartProps {
   currentInvestigationId?: string | null;
   loading?: boolean;
   onOpenEvidenceVault?: () => void;
+  onEvidenceAdded?: () => void;
   onNotify?: (msg: string, type?: 'success' | 'warning' | 'error') => void;
 }
 
@@ -115,6 +116,7 @@ export const EvidenceDailyChart: React.FC<EvidenceDailyChartProps> = ({
   currentInvestigationId,
   loading = false,
   onOpenEvidenceVault,
+  onEvidenceAdded,
   onNotify,
 }) => {
   const [chartMode, setChartMode] = useState<'bar' | 'area'>('bar');
@@ -242,6 +244,7 @@ export const EvidenceDailyChart: React.FC<EvidenceDailyChartProps> = ({
       });
 
       setSelectedDateKey(toLocalDateKey(new Date()));
+      onEvidenceAdded?.();
       onNotify?.(`تم حفظ الدليل "${safeName}" في مجموعة evidence بـ Firestore وتحديث الرسم البياني.`, 'success');
     } catch (err: any) {
       onNotify?.(`فشل حفظ الدليل في Firestore: ${err?.message || 'خطأ في الصلاحيات'}`, 'error');

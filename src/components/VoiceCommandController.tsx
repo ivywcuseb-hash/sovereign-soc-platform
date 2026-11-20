@@ -193,6 +193,26 @@ const TAB_VOICE_ROUTES: Array<{ tab: AppTabId; labelAr: string; keywords: string
     keywords: ['كاشف الاخفاء', 'البيانات المخفيه', 'steganography', 'lsb'],
   },
   {
+    tab: 'phishing_url_inspector',
+    labelAr: 'كاشف الروابط الاحتيالية ومحلل البنية (Phishing & URL Deep Inspector)',
+    keywords: ['كاشف الروابط الاحتياليه', 'محلل البنيه', 'روابط التصيد', 'phishing', 'url deep'],
+  },
+  {
+    tab: 'ip_isp_asn_lookup',
+    labelAr: 'فاحص IP ومزود الخدمة (IP Intelligence & ISP/ASN Lookup)',
+    keywords: ['فاحص ip', 'مزود الخدمه', 'رقم الشبكه', 'isp', 'asn', 'ip intelligence'],
+  },
+  {
+    tab: 'iq_domain_auditor',
+    labelAr: 'فاحص أمان النطاقات العراقية (IQ Domain Security Auditor)',
+    keywords: ['النطاقات العراقيه', 'فاحص النطاقات العراقيه', 'نطاق عراقي', 'iq domain', 'gov iq'],
+  },
+  {
+    tab: 'live_dns_inspector',
+    labelAr: 'فاحص سجلات DNS المباشر (Live DNS Inspector)',
+    keywords: ['فاحص dns المباشر', 'فاحص سجلات dns', 'live dns', 'dns inspector', 'استعلام dns'],
+  },
+  {
     tab: 'dns_email_auditor',
     labelAr: 'فاحص أمان النطاقات والبريد (DNS/SPF/DMARC)',
     keywords: ['فاحص النطاقات', 'امان البريد', 'سجلات dns', 'spf', 'dmarc', 'dns'],
