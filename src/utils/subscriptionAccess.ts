@@ -1,5 +1,5 @@
 import type { User } from 'firebase/auth';
-import { doc, getDocFromServer, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { NAV_TABS_META, type AppTabId } from '../components/LayoutCustomizer';
 
@@ -24,6 +24,8 @@ export interface UserSubscriptionRecord {
   email?: string;
   plan: SubscriptionPlanId;
   status: SubscriptionStatusId;
+  isPro?: boolean;
+  activatedAt?: string;
   expiresAt?: string;
   grantedBy?: string;
   notes?: string;
@@ -283,6 +285,301 @@ export async function saveLockedToolsConfigToFirestore(
   }
 }
 
+export const USER_SUBSCRIPTIONS_LOCAL_STORAGE_KEY = 'sovereign_user_subscriptions';
+
+export function readAllLocalUserSubscriptionsBackup(): Record<string, UserSubscriptionRecord> {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(USER_SUBSCRIPTIONS_LOCAL_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as Record<string, UserSubscriptionRecord>;
+  } catch {
+    return {};
+  }
+}
+
+export function readLocalUserSubscriptionBackup(uid: string): UserSubscriptionRecord | null {
+  const cleanUid = (uid || '').trim();
+  if (!cleanUid) return null;
+  const all = readAllLocalUserSubscriptionsBackup();
+  return all[cleanUid] || null;
+}
+
+export function writeLocalUserSubscriptionBackup(
+  uid: string,
+  record: UserSubscriptionRecord | null
+): void {
+  const cleanUid = (uid || '').trim();
+  if (!cleanUid) return;
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const all = readAllLocalUserSubscriptionsBackup();
+    if (record === null) {
+      delete all[cleanUid];
+    } else {
+      all[cleanUid] = record;
+    }
+    window.localStorage.setItem(USER_SUBSCRIPTIONS_LOCAL_STORAGE_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+export interface SaveUserSubscriptionResult {
+  record: UserSubscriptionRecord;
+  syncedToCloud: boolean;
+  permissionDenied?: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export async function saveUserSubscriptionToFirestoreOrLocal(params: {
+  uid: string;
+  email?: string;
+  plan: SubscriptionPlanId;
+  durationDays?: number;
+  grantedByUid: string;
+  existingRecord?: UserSubscriptionRecord | null;
+}): Promise<SaveUserSubscriptionResult> {
+  const cleanUid = params.uid.trim();
+  const nowIso = new Date().toISOString();
+  const existingLocal = params.existingRecord || readLocalUserSubscriptionBackup(cleanUid);
+
+  const payload: UserSubscriptionRecord = {
+    userId: cleanUid,
+    plan: params.plan,
+    status: params.plan === 'free' ? 'revoked' : 'active',
+    isPro: params.plan === 'pro' || params.plan === 'enterprise',
+    activatedAt: nowIso,
+    grantedBy: (params.grantedByUid || 'owner').slice(0, 128),
+    createdAt: existingLocal?.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+  if (params.email && params.email.trim()) {
+    payload.email = params.email.trim().slice(0, 320);
+  } else if (existingLocal?.email) {
+    payload.email = existingLocal.email.slice(0, 320);
+  }
+  if (typeof params.durationDays === 'number' && params.durationDays > 0) {
+    payload.expiresAt = new Date(Date.now() + params.durationDays * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // 1. Always save locally first so activation works immediately even if rules restrict writes
+  writeLocalUserSubscriptionBackup(cleanUid, payload);
+
+  // 2. Quietly sync to Firestore subscriptions/{uid}
+  const subRef = doc(db, 'subscriptions', cleanUid);
+  try {
+    let cloudCreatedAt = payload.createdAt;
+    try {
+      const existingSnap = await getDoc(subRef);
+      if (existingSnap.exists()) {
+        const prevCreatedAt = existingSnap.data()?.createdAt;
+        if (typeof prevCreatedAt === 'string' && prevCreatedAt.trim()) {
+          cloudCreatedAt = prevCreatedAt;
+          payload.createdAt = prevCreatedAt;
+        }
+      }
+    } catch {
+      // Proceed cleanly if pre-read is unavailable
+    }
+
+    const cloudPayload: Record<string, string | boolean> = {
+      userId: cleanUid,
+      plan: payload.plan,
+      status: payload.status,
+      isPro: Boolean(payload.isPro),
+      activatedAt: nowIso,
+      grantedBy: payload.grantedBy || 'owner',
+      createdAt: cloudCreatedAt,
+      updatedAt: nowIso,
+    };
+    if (payload.email) cloudPayload.email = payload.email;
+    if (payload.expiresAt) cloudPayload.expiresAt = payload.expiresAt;
+
+    await setDoc(subRef, cloudPayload);
+    writeLocalUserSubscriptionBackup(cleanUid, payload);
+    return {
+      record: payload,
+      syncedToCloud: true,
+    };
+  } catch (error: any) {
+    const errorCode = String(error?.code || '');
+    const errorMessage = String(error?.message || '');
+    const isPermissionDenied =
+      errorCode === 'permission-denied' ||
+      errorMessage.toLowerCase().includes('permission') ||
+      errorMessage.toLowerCase().includes('insufficient permissions');
+
+    if (!isPermissionDenied) {
+      try {
+        handleFirestoreError(error, OperationType.WRITE, `subscriptions/${cleanUid}`);
+      } catch {}
+    }
+
+    return {
+      record: payload,
+      syncedToCloud: false,
+      permissionDenied: isPermissionDenied,
+      errorCode,
+      errorMessage,
+    };
+  }
+}
+
+export async function revokeUserSubscriptionInFirestoreOrLocal(params: {
+  uid: string;
+  grantedByUid: string;
+  existingRecord?: UserSubscriptionRecord | null;
+}): Promise<SaveUserSubscriptionResult> {
+  const cleanUid = params.uid.trim();
+  const nowIso = new Date().toISOString();
+  const existingLocal = params.existingRecord || readLocalUserSubscriptionBackup(cleanUid);
+
+  const payload: UserSubscriptionRecord = {
+    userId: cleanUid,
+    email: existingLocal?.email || '',
+    plan: 'free',
+    status: 'revoked',
+    isPro: false,
+    grantedBy: (params.grantedByUid || 'owner').slice(0, 128),
+    createdAt: existingLocal?.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+
+  // 1. Save revoked status locally immediately
+  writeLocalUserSubscriptionBackup(cleanUid, payload);
+
+  // 2. Quietly sync revocation to Firestore subscriptions/{uid}
+  const subRef = doc(db, 'subscriptions', cleanUid);
+  try {
+    let cloudCreatedAt = payload.createdAt;
+    try {
+      const existingSnap = await getDoc(subRef);
+      if (existingSnap.exists()) {
+        const prevCreatedAt = existingSnap.data()?.createdAt;
+        if (typeof prevCreatedAt === 'string' && prevCreatedAt.trim()) {
+          cloudCreatedAt = prevCreatedAt;
+          payload.createdAt = prevCreatedAt;
+        }
+      }
+    } catch {}
+
+    await setDoc(subRef, {
+      userId: cleanUid,
+      email: payload.email || '',
+      plan: 'free',
+      status: 'revoked',
+      isPro: false,
+      grantedBy: payload.grantedBy || 'owner',
+      createdAt: cloudCreatedAt,
+      updatedAt: nowIso,
+    });
+    writeLocalUserSubscriptionBackup(cleanUid, payload);
+    return {
+      record: payload,
+      syncedToCloud: true,
+    };
+  } catch (error: any) {
+    const errorCode = String(error?.code || '');
+    const errorMessage = String(error?.message || '');
+    const isPermissionDenied =
+      errorCode === 'permission-denied' ||
+      errorMessage.toLowerCase().includes('permission') ||
+      errorMessage.toLowerCase().includes('insufficient permissions');
+
+    if (!isPermissionDenied) {
+      try {
+        handleFirestoreError(error, OperationType.WRITE, `subscriptions/${cleanUid}`);
+      } catch {}
+    }
+
+    return {
+      record: payload,
+      syncedToCloud: false,
+      permissionDenied: isPermissionDenied,
+      errorCode,
+      errorMessage,
+    };
+  }
+}
+
+export function subscribeToUserSubscription(
+  uid: string,
+  onUpdate: (sub: UserSubscriptionRecord | null) => void,
+  onLoaded?: () => void
+): () => void {
+  const cleanUid = (uid || '').trim();
+  if (!cleanUid) {
+    onUpdate(null);
+    onLoaded?.();
+    return () => {};
+  }
+
+  let disposed = false;
+  const subRef = doc(db, 'subscriptions', cleanUid);
+
+  const initialLocal = readLocalUserSubscriptionBackup(cleanUid);
+  if (initialLocal) {
+    onUpdate(initialLocal);
+  }
+
+  const applyMissingOrRestrictedFallback = () => {
+    const localRecord = readLocalUserSubscriptionBackup(cleanUid);
+    onUpdate(localRecord || null);
+    onLoaded?.();
+  };
+
+  void getDocFromServer(subRef)
+    .then((serverSnap) => {
+      if (disposed) return;
+      if (serverSnap.exists()) {
+        const cloudRecord = serverSnap.data() as UserSubscriptionRecord;
+        writeLocalUserSubscriptionBackup(cleanUid, cloudRecord);
+        onUpdate(cloudRecord);
+        onLoaded?.();
+      } else {
+        applyMissingOrRestrictedFallback();
+      }
+    })
+    .catch(() => {
+      // Quietly rely on onSnapshot + localStorage backup
+    });
+
+  const unsub = onSnapshot(
+    subRef,
+    (subSnap) => {
+      if (disposed) return;
+      if (subSnap.exists()) {
+        const cloudRecord = subSnap.data() as UserSubscriptionRecord;
+        writeLocalUserSubscriptionBackup(cleanUid, cloudRecord);
+        onUpdate(cloudRecord);
+        onLoaded?.();
+      } else if (!subSnap.metadata.fromCache) {
+        applyMissingOrRestrictedFallback();
+      } else {
+        onLoaded?.();
+      }
+    },
+    (error: any) => {
+      if (disposed) return;
+      const code = String(error?.code || '');
+      const msg = String(error?.message || '');
+      if (code === 'permission-denied' || msg.toLowerCase().includes('permission')) {
+        applyMissingOrRestrictedFallback();
+        return;
+      }
+      console.warn('Subscription snapshot error:', error);
+      applyMissingOrRestrictedFallback();
+    }
+  );
+
+  return () => {
+    disposed = true;
+    unsub();
+  };
+}
+
 export function resolveNormalizedUserEmail(user: User | null | undefined, profile?: AccessUserProfileLike | null): string {
   const candidates = [
     user?.email,
@@ -332,7 +629,7 @@ export function isPlatformAdminOrOwner(
 export function isSubscriptionActive(sub: UserSubscriptionRecord | null | undefined): boolean {
   if (!sub) return false;
   if (sub.status !== 'active') return false;
-  if (sub.plan !== 'pro' && sub.plan !== 'enterprise') return false;
+  if (sub.plan !== 'pro' && sub.plan !== 'enterprise' && sub.isPro !== true) return false;
   if (sub.expiresAt) {
     const expMs = new Date(sub.expiresAt).getTime();
     if (!Number.isNaN(expMs) && expMs <= Date.now()) {

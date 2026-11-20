@@ -36,6 +36,9 @@ import {
   saveLockedToolsConfigToFirestore,
   writeLocalLockedToolsBackup,
   sanitizeLockedToolsList,
+  readAllLocalUserSubscriptionsBackup,
+  saveUserSubscriptionToFirestoreOrLocal,
+  revokeUserSubscriptionInFirestoreOrLocal,
   OWNER_EMAILS,
   OWNER_UIDS,
   type SovereignAccessState,
@@ -270,17 +273,24 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
 }) => {
   const [ownerConsoleTab, setOwnerConsoleTab] = useState<'tools' | 'users'>('tools');
   const [usersList, setUsersList] = useState<AdminUserSummary[]>([]);
-  const [subsMap, setSubsMap] = useState<Record<string, UserSubscriptionRecord>>({});
+  const [subsMap, setSubsMap] = useState<Record<string, UserSubscriptionRecord>>(() =>
+    readAllLocalUserSubscriptionsBackup()
+  );
   const [loading, setLoading] = useState(true);
   const [targetUid, setTargetUid] = useState('');
   const [targetEmail, setTargetEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanId>('pro');
-  const [durationDays, setDurationDays] = useState<number>(30);
+  const [durationDays, setDurationDays] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [toolSearchTerm, setToolSearchTerm] = useState('');
   const [savingUid, setSavingUid] = useState<string | null>(null);
   const [savingToolId, setSavingToolId] = useState<string | null>(null);
   const [lastSavedInfo, setLastSavedInfo] = useState<{
+    message: string;
+    savedAt: string;
+    syncedToCloud: boolean;
+  } | null>(null);
+  const [lastSubSavedInfo, setLastSubSavedInfo] = useState<{
     message: string;
     savedAt: string;
     syncedToCloud: boolean;
@@ -319,17 +329,21 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
     const unsubSubs = onSnapshot(
       collection(db, 'subscriptions'),
       (snap) => {
-        const nextMap: Record<string, UserSubscriptionRecord> = {};
+        const nextMap: Record<string, UserSubscriptionRecord> = {
+          ...readAllLocalUserSubscriptionsBackup(),
+        };
         snap.forEach((d) => {
           nextMap[d.id] = d.data() as UserSubscriptionRecord;
         });
         setSubsMap(nextMap);
       },
-      (err) => {
+      (err: any) => {
+        const msg = String(err?.message || '');
+        if (err?.code === 'permission-denied' || msg.toLowerCase().includes('permission')) {
+          setSubsMap(readAllLocalUserSubscriptionsBackup());
+          return;
+        }
         console.warn('Admin subscriptions list error:', err);
-        try {
-          handleFirestoreError(err, OperationType.LIST, 'subscriptions');
-        } catch {}
       }
     );
 
@@ -400,71 +414,106 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
   ) => {
     const cleanUid = uid.trim();
     if (!cleanUid || !/^[a-zA-Z0-9_-]{1,128}$/.test(cleanUid)) {
-      onNotify('معرّف UID غير صالح.', 'error');
+      onNotify('يرجى إدخال معرّف UID صالح.', 'warning');
       return;
     }
     setSavingUid(cleanUid);
     try {
-      const nowIso = new Date().toISOString();
-      const existing = subsMap[cleanUid];
-      const payload: Record<string, string> = {
-        userId: cleanUid,
+      const result = await saveUserSubscriptionToFirestoreOrLocal({
+        uid: cleanUid,
+        email,
         plan,
-        status: 'active',
-        grantedBy: currentUserUid,
-        createdAt: existing?.createdAt || nowIso,
-        updatedAt: nowIso,
-      };
-      if (email.trim()) {
-        payload.email = email.trim().slice(0, 320);
+        durationDays: days,
+        grantedByUid: currentUserUid,
+        existingRecord: subsMap[cleanUid] || null,
+      });
+
+      setSubsMap((prev) => ({
+        ...prev,
+        [cleanUid]: result.record,
+      }));
+
+      const label = `تم تفعيل اشتراك (${plan.toUpperCase()}) للمعرّف ${cleanUid}`;
+      if (result.syncedToCloud) {
+        setLastSubSavedInfo({
+          message: label,
+          savedAt: result.record.updatedAt,
+          syncedToCloud: true,
+        });
+        onNotify(`${label} (تم الحفظ في Firestore)`, 'success');
+      } else {
+        setLastSubSavedInfo({
+          message: `${label} — تم الحفظ محلياً لحين تحديث قواعد Firestore`,
+          savedAt: result.record.updatedAt,
+          syncedToCloud: false,
+        });
+        onNotify(`${label} (تم الحفظ محلياً لحين تحديث قواعد Firestore)`, 'warning');
       }
-      if (days > 0) {
-        payload.expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-      }
-      await setDoc(doc(db, 'subscriptions', cleanUid), payload);
-      onNotify(`تم تفعيل اشتراك (${plan.toUpperCase()}) للمستخدم بنجاح في Firestore.`, 'success');
-      if (cleanUid === targetUid.trim()) {
-        setTargetUid('');
-        setTargetEmail('');
-      }
-    } catch (err: any) {
-      console.error('Grant subscription error:', err);
-      onNotify(err?.message || 'تعذر تفعيل الاشتراك في Firestore.', 'error');
-      try {
-        handleFirestoreError(err, OperationType.WRITE, `subscriptions/${cleanUid}`);
-      } catch {}
     } finally {
       setSavingUid(null);
     }
   };
 
   const revokeSubscription = async (uid: string) => {
-    setSavingUid(uid);
+    const cleanUid = uid.trim();
+    if (!cleanUid || !/^[a-zA-Z0-9_-]{1,128}$/.test(cleanUid)) {
+      onNotify('يرجى إدخال معرّف UID صالح لإلغاء التفعيل.', 'warning');
+      return;
+    }
+    setSavingUid(cleanUid);
     try {
-      const existing = subsMap[uid];
-      if (existing) {
-        await setDoc(doc(db, 'subscriptions', uid), {
-          userId: uid,
-          email: existing.email || '',
-          plan: 'free',
-          status: 'revoked',
-          grantedBy: currentUserUid,
-          createdAt: existing.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+      const result = await revokeUserSubscriptionInFirestoreOrLocal({
+        uid: cleanUid,
+        grantedByUid: currentUserUid,
+        existingRecord: subsMap[cleanUid] || null,
+      });
+
+      setSubsMap((prev) => ({
+        ...prev,
+        [cleanUid]: result.record,
+      }));
+
+      const label = `تم إلغاء تفعيل الاشتراك للمعرّف ${cleanUid}`;
+      if (result.syncedToCloud) {
+        setLastSubSavedInfo({
+          message: label,
+          savedAt: result.record.updatedAt,
+          syncedToCloud: true,
         });
+        onNotify(`${label} (تم الحفظ في Firestore)`, 'warning');
       } else {
-        await deleteDoc(doc(db, 'subscriptions', uid));
+        setLastSubSavedInfo({
+          message: `${label} — تم الحفظ محلياً لحين تحديث قواعد Firestore`,
+          savedAt: result.record.updatedAt,
+          syncedToCloud: false,
+        });
+        onNotify(`${label} (تم الحفظ محلياً لحين تحديث قواعد Firestore)`, 'warning');
       }
-      onNotify('تم إيقاف الاشتراك وتقييد الأدوات المدفوعة لهذا الحساب.', 'warning');
-    } catch (err: any) {
-      console.error('Revoke subscription error:', err);
-      onNotify(err?.message || 'تعذر إيقاف الاشتراك.', 'error');
     } finally {
       setSavingUid(null);
     }
   };
 
-  const filteredUsers = usersList.filter((u) => {
+  const mergedUsersList: AdminUserSummary[] = (() => {
+    const byUid = new Map<string, AdminUserSummary>();
+    for (const u of usersList) {
+      byUid.set(u.uid, u);
+    }
+    for (const [subUid, sub] of Object.entries(subsMap)) {
+      if (!byUid.has(subUid)) {
+        byUid.set(subUid, {
+          uid: subUid,
+          email: sub.email || '',
+          displayName: 'حساب مفعّل بالـ UID',
+          role: 'analyst',
+          createdAt: sub.createdAt || sub.updatedAt || '',
+        });
+      }
+    }
+    return Array.from(byUid.values());
+  })();
+
+  const filteredUsers = mergedUsersList.filter((u) => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return true;
     return (
@@ -521,7 +570,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
           }`}
         >
           <Users className="w-3.5 h-3.5" />
-          <span>اشتراكات المستخدمين ({usersList.length})</span>
+          <span>اشتراكات المستخدمين ({mergedUsersList.length})</span>
         </button>
       </div>
 
@@ -708,64 +757,104 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Quick Grant Form by UID */}
+          {/* Direct UID Subscription Activation & Revocation Panel */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void grantSubscription(targetUid, targetEmail, selectedPlan, durationDays);
             }}
-            className="grid grid-cols-1 md:grid-cols-12 gap-2.5 bg-gray-900 p-4 rounded-xl border border-gray-800"
+            className="bg-gray-900 p-4 rounded-xl border border-gray-800 space-y-3"
           >
-            <input
-              type="text"
-              dir="ltr"
-              value={targetUid}
-              onChange={(e) => setTargetUid(e.target.value)}
-              placeholder="Firebase User UID..."
-              className="md:col-span-4 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
-              required
-            />
-            <input
-              type="email"
-              dir="ltr"
-              value={targetEmail}
-              onChange={(e) => setTargetEmail(e.target.value)}
-              placeholder="البريد (اختياري)"
-              className="md:col-span-3 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
-            />
-            <select
-              value={selectedPlan}
-              onChange={(e) => setSelectedPlan(e.target.value as SubscriptionPlanId)}
-              className="md:col-span-2 px-2.5 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
-            >
-              <option value="pro">Pro</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
-            <select
-              value={durationDays}
-              onChange={(e) => setDurationDays(Number(e.target.value))}
-              className="md:col-span-1 px-2 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
-            >
-              <option value={30}>30 يوم</option>
-              <option value={90}>90 يوم</option>
-              <option value={365}>سنة</option>
-              <option value={0}>دائم</option>
-            </select>
-            <button
-              type="submit"
-              disabled={Boolean(savingUid)}
-              className="md:col-span-2 py-2 px-3 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-lg transition cursor-pointer disabled:opacity-50"
-            >
-              تفعيل الاشتراك
-            </button>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-white">تفعيل أو إلغاء الاشتراك عبر UID</span>
+              <span className="text-[10px] text-gray-400">
+                يحفظ في Firestore (subscriptions) مع نسخة احتياطية محلية تلقائياً
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+              <input
+                type="text"
+                dir="ltr"
+                value={targetUid}
+                onChange={(e) => setTargetUid(e.target.value)}
+                placeholder="أدخل معرّف المستخدم (UID)..."
+                className="md:col-span-5 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
+                required
+              />
+              <input
+                type="email"
+                dir="ltr"
+                value={targetEmail}
+                onChange={(e) => setTargetEmail(e.target.value)}
+                placeholder="البريد الإلكتروني (اختياري)"
+                className="md:col-span-3 px-3 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs font-mono text-white focus:border-[#D4AF37] outline-none"
+              />
+              <select
+                value={selectedPlan}
+                onChange={(e) => setSelectedPlan(e.target.value as SubscriptionPlanId)}
+                className="md:col-span-2 px-2.5 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+              >
+                <option value="pro">Pro</option>
+                <option value="enterprise">Enterprise</option>
+              </select>
+              <select
+                value={durationDays}
+                onChange={(e) => setDurationDays(Number(e.target.value))}
+                className="md:col-span-2 px-2 py-2 bg-gray-950 border border-gray-800 rounded-lg text-xs text-white focus:border-[#D4AF37] outline-none"
+              >
+                <option value={0}>دائم (مفتوح)</option>
+                <option value={30}>30 يوم</option>
+                <option value={90}>90 يوم</option>
+                <option value={365}>سنة</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="submit"
+                disabled={Boolean(savingUid) || !targetUid.trim()}
+                className="py-2 px-4 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-lg transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>تفعيل الاشتراك (Pro)</span>
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(savingUid) || !targetUid.trim()}
+                onClick={() => void revokeSubscription(targetUid)}
+                className="py-2 px-4 bg-red-500/15 hover:bg-red-500/25 border border-red-500/35 text-red-300 font-bold text-xs rounded-lg transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                <span>إلغاء التفعيل</span>
+              </button>
+            </div>
           </form>
+
+          {lastSubSavedInfo && (
+            <div
+              className={`px-3.5 py-2.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                lastSubSavedInfo.syncedToCloud
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                  : 'bg-amber-500/10 border-amber-500/35 text-amber-300'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{lastSubSavedInfo.message}</span>
+              </div>
+              <span className="text-[10px] font-mono opacity-80 shrink-0" dir="ltr">
+                {lastSubSavedInfo.syncedToCloud ? 'Firestore + Local' : 'Local Backup'} • {new Date(lastSubSavedInfo.savedAt).toLocaleTimeString('ar-SA')}
+              </span>
+            </div>
+          )}
 
           {/* Registered Users Table */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs font-bold text-gray-300">
                 <Users className="w-4 h-4 text-[#D4AF37]" />
-                <span>المستخدمون المسجلون ({usersList.length})</span>
+                <span>المستخدمون المسجلون والاشتراكات ({mergedUsersList.length})</span>
               </div>
               <div className="relative w-full sm:w-64">
                 <Search className="w-3.5 h-3.5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />

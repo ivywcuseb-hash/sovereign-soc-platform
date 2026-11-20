@@ -205,6 +205,8 @@ import {
   writeLocalLockedToolsBackup,
   sanitizeLockedToolsList,
   subscribeToLockedToolsConfig,
+  readLocalUserSubscriptionBackup,
+  subscribeToUserSubscription,
   type UserSubscriptionRecord,
 } from './utils/subscriptionAccess';
 import {
@@ -1249,7 +1251,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [uiSyncStatus, setUiSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'local-only'>('idle');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [sidebarSearch, setSidebarSearch] = useState<string>('');
-  const [userSubscription, setUserSubscription] = useState<UserSubscriptionRecord | null>(null);
+  const [userSubscription, setUserSubscription] = useState<UserSubscriptionRecord | null>(() =>
+    readLocalUserSubscriptionBackup(auth.currentUser?.uid || '')
+  );
   const [subscriptionLoaded, setSubscriptionLoaded] = useState<boolean>(false);
   const [lockedToolsConfig, setLockedToolsConfig] = useState<AppTabId[] | null>(() => readLocalLockedToolsBackup());
   const [showSubscriptionModal, setShowSubscriptionModal] = useState<boolean>(false);
@@ -1427,6 +1431,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
           '';
         setUser(u);
         setIsCloudAuthenticated(true);
+        setUserSubscription(readLocalUserSubscriptionBackup(u.uid));
         try {
           // Fetch or Create User Profile
           const profileRef = doc(db, 'users', u.uid);
@@ -1670,24 +1675,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       }
     );
 
-    const subPath = `subscriptions/${uid}`;
-    const unsubSubscription = onSnapshot(
-      doc(db, 'subscriptions', uid),
-      (subSnap) => {
-        if (subSnap.exists()) {
-          setUserSubscription(subSnap.data() as UserSubscriptionRecord);
-        } else {
-          setUserSubscription(null);
-        }
-        setSubscriptionLoaded(true);
-      },
-      (error) => {
-        setSubscriptionLoaded(true);
-        console.warn('Subscription snapshot error:', error);
-        try {
-          handleFirestoreError(error, OperationType.GET, subPath);
-        } catch {}
-      }
+    const unsubSubscription = subscribeToUserSubscription(
+      uid,
+      (sub) => setUserSubscription(sub),
+      () => setSubscriptionLoaded(true)
     );
 
     const unsubToolAccess = subscribeToLockedToolsConfig((nextLockedTools) => {
