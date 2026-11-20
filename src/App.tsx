@@ -201,6 +201,10 @@ import {
 import {
   computeSovereignAccessState,
   isPlatformAdminOrOwner,
+  readLocalLockedToolsBackup,
+  writeLocalLockedToolsBackup,
+  sanitizeLockedToolsList,
+  subscribeToLockedToolsConfig,
   type UserSubscriptionRecord,
 } from './utils/subscriptionAccess';
 import {
@@ -485,8 +489,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
   const resolvedUserEmail =
     user?.email ||
-    user?.providerData?.find((p) => p.providerId === 'google.com')?.email ||
+    user?.providerData?.find((p) => p?.email)?.email ||
+    (user as unknown as { reloadUserInfo?: { email?: string } } | null | undefined)?.reloadUserInfo?.email ||
     userProfile?.email ||
+    auth.currentUser?.email ||
     '';
   const isEmailVerifiedOrGoogle = Boolean(
     user?.emailVerified ||
@@ -1245,7 +1251,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [sidebarSearch, setSidebarSearch] = useState<string>('');
   const [userSubscription, setUserSubscription] = useState<UserSubscriptionRecord | null>(null);
   const [subscriptionLoaded, setSubscriptionLoaded] = useState<boolean>(false);
-  const [paidTabsConfig, setPaidTabsConfig] = useState<AppTabId[] | null>(null);
+  const [lockedToolsConfig, setLockedToolsConfig] = useState<AppTabId[] | null>(() => readLocalLockedToolsBackup());
   const [showSubscriptionModal, setShowSubscriptionModal] = useState<boolean>(false);
   const [lockedToolPromptTab, setLockedToolPromptTab] = useState<AppTabId | null>(null);
   const uiPrefsRef = React.useRef<UiPreferences>(uiPrefs);
@@ -1253,10 +1259,24 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     uiPrefsRef.current = uiPrefs;
   }, [uiPrefs]);
 
+  const effectiveAuthUser = user || auth.currentUser;
   const accessState = useMemo(
-    () => computeSovereignAccessState(user, userProfile, userSubscription, subscriptionLoaded, paidTabsConfig),
-    [user, userProfile, userSubscription, subscriptionLoaded, paidTabsConfig]
+    () => computeSovereignAccessState(effectiveAuthUser, userProfile, userSubscription, subscriptionLoaded, lockedToolsConfig),
+    [effectiveAuthUser, userProfile, userSubscription, subscriptionLoaded, lockedToolsConfig]
   );
+
+  const handleOwnerLockedToolsUpdated = (nextLockedTools: AppTabId[]) => {
+    const sanitized = sanitizeLockedToolsList(nextLockedTools);
+    setLockedToolsConfig(sanitized);
+    writeLocalLockedToolsBackup(sanitized);
+  };
+
+  useEffect(() => {
+    if (accessState.isOwner || accessState.isPro || accessState.hasFullAccess) {
+      if (showSubscriptionModal) setShowSubscriptionModal(false);
+      if (lockedToolPromptTab) setLockedToolPromptTab(null);
+    }
+  }, [accessState.isOwner, accessState.isPro, accessState.hasFullAccess, showSubscriptionModal, lockedToolPromptTab]);
 
   // Apply Theme (curated or 540+ procedural), Layout Structure, Font Scale & UI Density immediately to DOM
   useEffect(() => {
@@ -1350,6 +1370,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     if (accessState.isTabLocked(tab)) {
       setLockedToolPromptTab(tab);
       setShowSubscriptionModal(true);
+      const tabLabel = NAV_TABS_META.find((t) => t.id === tab)?.label || 'هذه الأداة';
+      notifyStatus(`أداة "${tabLabel}" مقفلة لغير المشتركين — يرجى تفعيل الاشتراك للوصول إليها.`, 'warning');
       return;
     }
     setActiveTab(tab);
@@ -1382,7 +1404,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       const isGoogleUser = Boolean(
         u &&
         !u.isAnonymous &&
-        u.providerData?.some((provider) => provider.providerId === 'google.com')
+        (u.providerData?.some((provider) => provider.providerId === 'google.com') || isPlatformAdminOrOwner(u))
       );
 
       if (u && !isGoogleUser) {
@@ -1466,7 +1488,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         setUserProfile(null);
         setUserSubscription(null);
         setSubscriptionLoaded(false);
-        setPaidTabsConfig(null);
+        setLockedToolsConfig(readLocalLockedToolsBackup());
         setShowSubscriptionModal(false);
       }
       setAuthReady(true);
@@ -1513,9 +1535,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     };
   }, []);
 
-  // Real-time Firestore onSnapshot Listeners for Investigations, Evidence, and Audit Logs
+  // Real-time Firestore onSnapshot Listeners for Investigations, Evidence, Audit Logs, Subscriptions & Locked Tools
   useEffect(() => {
-    const activeUser = auth.currentUser;
+    const activeUser = user || auth.currentUser;
     if (!isCloudAuthenticated || !activeUser) return;
 
     const uid = activeUser.uid;
@@ -1668,26 +1690,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       }
     );
 
-    const toolAccessPath = 'platform_config/tool_access';
-    const unsubToolAccess = onSnapshot(
-      doc(db, 'platform_config', 'tool_access'),
-      (cfgSnap) => {
-        if (cfgSnap.exists()) {
-          const rawPaidTabs = cfgSnap.data()?.paidTabs;
-          if (Array.isArray(rawPaidTabs)) {
-            setPaidTabsConfig(rawPaidTabs.filter((id): id is AppTabId => typeof id === 'string'));
-            return;
-          }
-        }
-        setPaidTabsConfig(null);
-      },
-      (error) => {
-        console.warn('Tool access config snapshot error:', error);
-        try {
-          handleFirestoreError(error, OperationType.GET, toolAccessPath);
-        } catch {}
-      }
-    );
+    const unsubToolAccess = subscribeToLockedToolsConfig((nextLockedTools) => {
+      setLockedToolsConfig(nextLockedTools);
+    });
 
     return () => {
       unsubInvestigations();
@@ -6080,7 +6085,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     type="button"
                     onClick={() => {
                       if (!isGroupActive) {
-                        handleSelectTab(groupItems[0].id);
+                        const firstAccessible = groupItems.find((item) => !accessState.isTabLocked(item.id)) || groupItems[0];
+                        handleSelectTab(firstAccessible.id);
                       }
                     }}
                     className={`whitespace-nowrap shrink-0 pb-1 border-b-2 transition-colors cursor-pointer ${
@@ -6341,12 +6347,19 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                       {groupItems.map((item) => {
                         const isActive = activeTab === item.id;
                         const locked = accessState.isTabLocked(item.id);
+                        const lockedForOthers = accessState.isOwner && accessState.isToolInLockedList(item.id);
                         return (
                           <button
                             key={item.id}
                             type="button"
                             onClick={() => handleSelectTab(item.id)}
-                            title={locked ? `${item.label} (يتطلب اشتراكاً)` : item.label}
+                            title={
+                              locked
+                                ? `${item.label} (يتطلب اشتراكاً)`
+                                : lockedForOthers
+                                ? `${item.label} — مقفلة للمستخدمين الآخرين (مفتوحة لك كمالك)`
+                                : item.label
+                            }
                             className={`w-full flex items-center ${
                               effectiveSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3'
                             } py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
@@ -6363,6 +6376,15 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                             </div>
                             {!effectiveSidebarCollapsed && locked && (
                               <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
+                            )}
+                            {!effectiveSidebarCollapsed && lockedForOthers && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5">
+                                <Lock className="w-2.5 h-2.5" />
+                                للآخرين
+                              </span>
+                            )}
+                            {effectiveSidebarCollapsed && lockedForOthers && (
+                              <Lock className="w-2.5 h-2.5 text-amber-400/80 shrink-0" />
                             )}
                           </button>
                         );
@@ -6405,7 +6427,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     key={groupKey}
                     type="button"
                     onClick={() => {
-                      if (!isGroupActive) handleSelectTab(groupItems[0].id);
+                      if (!isGroupActive) {
+                        const firstAccessible = groupItems.find((item) => !accessState.isTabLocked(item.id)) || groupItems[0];
+                        handleSelectTab(firstAccessible.id);
+                      }
                     }}
                     className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
                       isGroupActive
@@ -6425,12 +6450,19 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 (t) => t.group === (NAV_TABS_META.find((x) => x.id === activeTab)?.group || 'command')
               ).map((item) => {
                 const locked = accessState.isTabLocked(item.id);
+                const lockedForOthers = accessState.isOwner && accessState.isToolInLockedList(item.id);
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectTab(item.id)}
-                    title={locked ? `${item.label} (يتطلب اشتراكاً)` : item.label}
+                    title={
+                      locked
+                        ? `${item.label} (يتطلب اشتراكاً)`
+                        : lockedForOthers
+                        ? `${item.label} — مقفلة للمستخدمين الآخرين (مفتوحة لك كمالك)`
+                        : item.label
+                    }
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
                       isTabVisible(item.id)
                         ? 'bg-[#D4AF37] border-[#D4AF37] text-gray-950 font-bold'
@@ -6442,6 +6474,18 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     {renderTabIcon(item.id, 'w-3.5 h-3.5')}
                     <span>{item.shortLabel}</span>
                     {locked && <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />}
+                    {lockedForOthers && (
+                      <span
+                        className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                          isTabVisible(item.id)
+                            ? 'bg-gray-950/20 text-gray-950'
+                            : 'bg-amber-500/15 text-amber-300'
+                        }`}
+                      >
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>مقفلة للآخرين</span>
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -6713,9 +6757,35 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   : 'space-y-6'
               }
             >
+              {accessState.isOwner &&
+                uiPrefs.layoutStructure !== 'multi_grid' &&
+                activeTab !== 'profile' &&
+                accessState.isToolInLockedList(activeTab) && (
+                  <div className="px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-amber-300 font-bold">
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span>مقفلة للمستخدمين الآخرين — مفتوحة لك مباشرة بصفتك مالك المنصة</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSelectTab('profile');
+                        window.setTimeout(() => {
+                          document.getElementById('owner-management-console')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 80);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-gray-950/70 hover:bg-gray-900 border border-amber-500/40 text-amber-200 text-[11px] font-bold cursor-pointer transition"
+                    >
+                      تعديل القفل من إدارة المالك
+                    </button>
+                  </div>
+                )}
+
               {uiPrefs.layoutStructure !== 'multi_grid' && accessState.isTabLocked(activeTab) && (
                 <SubscriptionInlineGate
                   tabId={activeTab}
+                  isOwner={accessState.isOwner}
+                  isPro={accessState.isPro}
                   onOpenSubscriptionModal={() => {
                     setLockedToolPromptTab(activeTab);
                     setShowSubscriptionModal(true);
@@ -6730,6 +6800,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     <SubscriptionInlineGate
                       key={`locked-grid-${lockedPanelId}`}
                       tabId={lockedPanelId}
+                      isOwner={accessState.isOwner}
+                      isPro={accessState.isPro}
                       onOpenSubscriptionModal={() => {
                         setLockedToolPromptTab(lockedPanelId);
                         setShowSubscriptionModal(true);
@@ -7901,7 +7973,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                               setAnalysisResult(res.analysis);
                               setSelectedImage(res.fileUrl);
                               setLastAnalyzedEvidenceId(res.id);
-                              setActiveTab('analyzer');
+                              handleSelectTab('analyzer');
                             }}
                             className="mr-auto p-1.5 bg-gray-800 hover:bg-[#D4AF37] hover:text-gray-950 rounded transition"
                           >
@@ -9274,7 +9346,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                                       'سجل الأدلة الرقمية - وحدة التحليل',
                                       `SHA-256=${ev.sha256.substring(0, 20)}...`
                                     );
-                                    setActiveTab('analyzer');
+                                    handleSelectTab('analyzer');
                                   }}
                                   className="p-1.5 bg-gray-800 hover:bg-[#D4AF37] hover:text-gray-950 rounded-md transition"
                                   title="عرض التحليل الكامل"
@@ -9720,7 +9792,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     <p className="text-[10px] text-gray-500 leading-relaxed">بصمتك الرقمية مشفرة بـ AES-256 ومرتبطة بـ UID الفريد الخاص بك.</p>
                   </div>
 
-                  {!accessState.isAdminOrOwner && (
+                  {!accessState.isOwner && !accessState.isPro && !accessState.isAdminOrOwner && (
                     <div className="p-5 bg-gray-950/70 border border-gray-800 rounded-2xl space-y-3 text-right">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -9777,6 +9849,9 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   <AdminSubscriptionManager
                     currentUserUid={user.uid}
                     accessState={accessState}
+                    onLockedToolsSaved={handleOwnerLockedToolsUpdated}
+                    onPaidTabsSaved={handleOwnerLockedToolsUpdated}
+                    onOpenTool={(tabId) => handleSelectTab(tabId)}
                     onNotify={notifyStatus}
                   />
                 </div>
@@ -9824,7 +9899,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                       </div>
                     </div>
                   ) : (
-                    <div onClick={() => setActiveTab('evidence')} className="bg-gray-950 border border-dashed border-gray-800 rounded-xl p-12 text-center cursor-pointer hover:border-gray-700 transition">
+                    <div onClick={() => handleSelectTab('evidence')} className="bg-gray-950 border border-dashed border-gray-800 rounded-xl p-12 text-center cursor-pointer hover:border-gray-700 transition">
                       <Plus className="w-8 h-8 text-gray-700 mx-auto mb-2" />
                       <span className="text-xs text-gray-500">اختر الدليل الأول من السجل</span>
                     </div>
@@ -9854,7 +9929,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                       </div>
                     </div>
                   ) : (
-                    <div onClick={() => setActiveTab('evidence')} className="bg-gray-950 border border-dashed border-gray-800 rounded-xl p-12 text-center cursor-pointer hover:border-gray-700 transition">
+                    <div onClick={() => handleSelectTab('evidence')} className="bg-gray-950 border border-dashed border-gray-800 rounded-xl p-12 text-center cursor-pointer hover:border-gray-700 transition">
                       <Plus className="w-8 h-8 text-gray-700 mx-auto mb-2" />
                       <span className="text-xs text-gray-500">اختر الدليل الثاني من السجل</span>
                     </div>
@@ -10560,7 +10635,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
-                                  onClick={() => { setSearchQuery(ip.value); setActiveTab('search'); }}
+                                  onClick={() => { setSearchQuery(ip.value); handleSelectTab('search'); }}
                                   className="p-1.5 bg-gray-900 hover:bg-gray-800 text-[#D4AF37] border border-gray-800 rounded-lg"
                                   title="فحص OSINT"
                                 >
@@ -10620,7 +10695,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                           تصدير CSV
                         </button>
                         <button
-                          onClick={() => setActiveTab('reports')}
+                          onClick={() => handleSelectTab('reports')}
                           className="px-3 py-1.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold rounded-lg text-xs flex items-center gap-1.5"
                         >
                           <FileText className="w-3.5 h-3.5" />
@@ -10712,7 +10787,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                                   <td className="px-3 py-2.5">
                                     <div className="flex items-center gap-1">
                                       <button
-                                        onClick={() => { setSearchQuery(ioc.value); setActiveTab('search'); }}
+                                        onClick={() => { setSearchQuery(ioc.value); handleSelectTab('search'); }}
                                         className="p-1.5 bg-gray-900 hover:bg-gray-800 text-[#D4AF37] border border-gray-800 rounded-md"
                                         title="OSINT"
                                       >
@@ -10768,7 +10843,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                               <button
                                 onClick={() => {
                                   setSearchQuery(ioc.value);
-                                  setActiveTab('search');
+                                  handleSelectTab('search');
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-[#D4AF37] border border-gray-800 rounded-lg text-xs font-medium transition"
                                 title="بحث استخباراتي OSINT لهذا المؤشر"
@@ -13225,8 +13300,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                                 </div>
                                 <button
                                   onClick={() => {
-                                    setActiveTab('threat_intel');
-                                    void runThreatIntelLookup(u.domain);
+                                    handleSelectTab('threat_intel');
+                                    if (!accessState.isTabLocked('threat_intel')) {
+                                      void runThreatIntelLookup(u.domain);
+                                    }
                                   }}
                                   className="px-2.5 py-1 rounded bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold shrink-0"
                                 >
@@ -13257,8 +13334,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                                 {!ipObj.isPrivate && (
                                   <button
                                     onClick={() => {
-                                      setActiveTab('threat_intel');
-                                      void runThreatIntelLookup(ipObj.ip);
+                                      handleSelectTab('threat_intel');
+                                      if (!accessState.isTabLocked('threat_intel')) {
+                                        void runThreatIntelLookup(ipObj.ip);
+                                      }
                                     }}
                                     className="px-2.5 py-1 rounded bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold shrink-0"
                                   >
@@ -13825,8 +13904,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                                 onClick={() => {
                                   try {
                                     const host = new URL(u).hostname;
-                                    setActiveTab('threat_intel');
-                                    void runThreatIntelLookup(host);
+                                    handleSelectTab('threat_intel');
+                                    if (!accessState.isTabLocked('threat_intel')) {
+                                      void runThreatIntelLookup(host);
+                                    }
                                   } catch {
                                     // ignore invalid URL
                                   }
@@ -13842,8 +13923,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                               <span className="text-xs font-mono text-emerald-300" dir="ltr">{ip}</span>
                               <button
                                 onClick={() => {
-                                  setActiveTab('threat_intel');
-                                  void runThreatIntelLookup(ip);
+                                  handleSelectTab('threat_intel');
+                                  if (!accessState.isTabLocked('threat_intel')) {
+                                    void runThreatIntelLookup(ip);
+                                  }
                                 }}
                                 className="px-2 py-0.5 rounded bg-[#D4AF37]/15 text-[#D4AF37] text-[10px] font-bold shrink-0"
                               >
@@ -14337,8 +14420,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                             {item.indicatorKind === 'ip' && (
                               <button
                                 onClick={() => {
-                                  setActiveTab('threat_intel');
-                                  void runThreatIntelLookup(item.indicator);
+                                  handleSelectTab('threat_intel');
+                                  if (!accessState.isTabLocked('threat_intel')) {
+                                    void runThreatIntelLookup(item.indicator);
+                                  }
                                 }}
                                 className="px-2.5 py-1 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-[10px] font-bold"
                               >
@@ -15491,17 +15576,22 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
             onResetPreferences={resetUiPreferences}
             syncStatus={uiSyncStatus}
             isCloudAuthenticated={isCloudAuthenticated}
+            isOwner={accessState.isOwner}
+            isTabPaidForUsers={accessState.isToolInLockedList}
             isTabLocked={accessState.isTabLocked}
             onLockedTabClick={(lockedId) => {
+              if (!accessState.isTabLocked(lockedId)) return;
               setLockedToolPromptTab(lockedId);
               setShowSubscriptionModal(true);
             }}
           />
 
           {/* Subscription Paywall Modal (Never shown to Platform Owner / Admin or Active Subscribers) */}
-          {!accessState.hasFullAccess && (
+          {!accessState.isOwner && !accessState.isPro && !accessState.hasFullAccess && (
             <SubscriptionPaywallModal
               isOpen={showSubscriptionModal}
+              isOwner={accessState.isOwner}
+              isPro={accessState.isPro}
               requestedTab={lockedToolPromptTab}
               userUid={user.uid}
               userEmail={resolvedUserEmail}

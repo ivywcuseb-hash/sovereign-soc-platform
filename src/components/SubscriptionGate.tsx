@@ -14,6 +14,7 @@ import {
   Search,
   SlidersHorizontal,
   RotateCcw,
+  ExternalLink,
 } from 'lucide-react';
 import {
   collection,
@@ -30,8 +31,11 @@ import {
   type AppTabId,
 } from './LayoutCustomizer';
 import {
-  DEFAULT_PAID_TABS,
+  DEFAULT_LOCKED_TOOLS,
   isSubscriptionActive,
+  saveLockedToolsConfigToFirestore,
+  writeLocalLockedToolsBackup,
+  sanitizeLockedToolsList,
   OWNER_EMAILS,
   OWNER_UIDS,
   type SovereignAccessState,
@@ -41,6 +45,8 @@ import {
 
 interface SubscriptionPaywallModalProps {
   isOpen: boolean;
+  isOwner?: boolean;
+  isPro?: boolean;
   requestedTab: AppTabId | null;
   userUid: string;
   userEmail: string;
@@ -52,6 +58,8 @@ interface SubscriptionPaywallModalProps {
 
 export const SubscriptionPaywallModal: React.FC<SubscriptionPaywallModalProps> = ({
   isOpen,
+  isOwner,
+  isPro,
   requestedTab,
   userUid,
   userEmail,
@@ -60,7 +68,13 @@ export const SubscriptionPaywallModal: React.FC<SubscriptionPaywallModalProps> =
   onOpenProfile,
   onNotify,
 }) => {
-  if (!isOpen) return null;
+  const isExemptOwnerOrPro =
+    Boolean(isOwner) ||
+    Boolean(isPro) ||
+    OWNER_UIDS.has((userUid || '').trim()) ||
+    OWNER_EMAILS.has((userEmail || '').trim().toLowerCase());
+
+  if (!isOpen || isExemptOwnerOrPro) return null;
 
   const tabMeta = requestedTab ? NAV_TABS_META.find((t) => t.id === requestedTab) : null;
 
@@ -180,15 +194,20 @@ export const SubscriptionPaywallModal: React.FC<SubscriptionPaywallModalProps> =
 
 interface SubscriptionInlineGateProps {
   tabId: AppTabId;
+  isOwner?: boolean;
+  isPro?: boolean;
   onOpenSubscriptionModal: () => void;
   onBackToDashboard: () => void;
 }
 
 export const SubscriptionInlineGate: React.FC<SubscriptionInlineGateProps> = ({
   tabId,
+  isOwner,
+  isPro,
   onOpenSubscriptionModal,
   onBackToDashboard,
 }) => {
+  if (isOwner || isPro) return null;
   const tabMeta = NAV_TABS_META.find((t) => t.id === tabId);
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center space-y-4">
@@ -235,12 +254,18 @@ interface AdminUserSummary {
 interface AdminSubscriptionManagerProps {
   currentUserUid: string;
   accessState: SovereignAccessState;
+  onPaidTabsSaved?: (nextLockedTools: AppTabId[]) => void;
+  onLockedToolsSaved?: (nextLockedTools: AppTabId[]) => void;
+  onOpenTool?: (tabId: AppTabId) => void;
   onNotify: (msg: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
 export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> = ({
   currentUserUid,
   accessState,
+  onPaidTabsSaved,
+  onLockedToolsSaved,
+  onOpenTool,
   onNotify,
 }) => {
   const [ownerConsoleTab, setOwnerConsoleTab] = useState<'tools' | 'users'>('tools');
@@ -255,6 +280,11 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
   const [toolSearchTerm, setToolSearchTerm] = useState('');
   const [savingUid, setSavingUid] = useState<string | null>(null);
   const [savingToolId, setSavingToolId] = useState<string | null>(null);
+  const [lastSavedInfo, setLastSavedInfo] = useState<{
+    message: string;
+    savedAt: string;
+    syncedToCloud: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!accessState.isAdminOrOwner) return;
@@ -311,22 +341,39 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
 
   if (!accessState.isAdminOrOwner) return null;
 
-  const persistPaidTabs = async (nextTabs: AppTabId[], actionKey: string, successMessage: string) => {
+  const persistLockedTools = async (nextTabs: AppTabId[], actionKey: string, successMessage: string) => {
     setSavingToolId(actionKey);
+    const sanitized = sanitizeLockedToolsList(nextTabs);
+    const notifySavedState = onLockedToolsSaved || onPaidTabsSaved;
+    const immediateTimestamp = new Date().toISOString();
+
+    // 1. Apply immediately to localStorage + UI state so toggling works instantaneously
+    writeLocalLockedToolsBackup(sanitized);
+    notifySavedState?.(sanitized);
+    setLastSavedInfo({
+      message: successMessage,
+      savedAt: immediateTimestamp,
+      syncedToCloud: false,
+    });
+
     try {
-      const sanitizedPaidTabs = Array.from(new Set(nextTabs)).filter((id) => id !== 'profile');
-      await setDoc(doc(db, 'platform_config', 'tool_access'), {
-        paidTabs: sanitizedPaidTabs,
-        updatedBy: currentUserUid,
-        updatedAt: new Date().toISOString(),
-      });
-      onNotify(successMessage, 'success');
-    } catch (err: any) {
-      console.error('Update platform tool access error:', err);
-      onNotify(err?.message || 'تعذر حفظ إعدادات قفل الأدوات في Firestore.', 'error');
-      try {
-        handleFirestoreError(err, OperationType.WRITE, 'platform_config/tool_access');
-      } catch {}
+      // 2. Quietly sync with Firestore
+      const result = await saveLockedToolsConfigToFirestore(sanitized, currentUserUid);
+      if (result.syncedToCloud) {
+        setLastSavedInfo({
+          message: successMessage,
+          savedAt: result.updatedAt,
+          syncedToCloud: true,
+        });
+        onNotify(`${successMessage} (تم الحفظ في Firestore)`, 'success');
+      } else {
+        setLastSavedInfo({
+          message: `${successMessage} — تم الحفظ محلياً لحين تحديث قواعد Firestore`,
+          savedAt: result.updatedAt,
+          syncedToCloud: false,
+        });
+        onNotify(`${successMessage} (تم الحفظ محلياً لحين تحديث قواعد Firestore)`, 'warning');
+      }
     } finally {
       setSavingToolId(null);
     }
@@ -334,15 +381,15 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
 
   const toggleToolPaidStatus = (tabId: AppTabId, label: string) => {
     if (tabId === 'profile') return;
-    const currentlyPaid = accessState.isTabPaidForUsers(tabId);
-    const currentList = Array.from(accessState.activePaidTabs);
-    const nextList = currentlyPaid
+    const currentlyLocked = accessState.isToolInLockedList(tabId);
+    const currentList = [...accessState.lockedTools];
+    const nextList = currentlyLocked
       ? currentList.filter((id) => id !== tabId)
       : [...currentList, tabId];
-    const message = currentlyPaid
+    const message = currentlyLocked
       ? `تم فتح أداة "${label}" مجاناً لجميع المستخدمين.`
-      : `تم قفل أداة "${label}" كأداة مدفوعة لغير المشتركين (تبقى مفتوحة لك مباشرة).`;
-    void persistPaidTabs(nextList, tabId, message);
+      : `تم قفل أداة "${label}" لغير المشتركين (تبقى مفتوحة لك مباشرة).`;
+    void persistLockedTools(nextList, tabId, message);
   };
 
   const grantSubscription = async (
@@ -428,7 +475,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
   });
 
   const normalizedToolQuery = toolSearchTerm.trim().toLowerCase();
-  const paidToolsCount = NAV_TABS_META.filter((t) => accessState.isTabPaidForUsers(t.id)).length;
+  const paidToolsCount = NAV_TABS_META.filter((t) => accessState.isToolInLockedList(t.id)).length;
   const freeToolsCount = NAV_TABS_META.length - paidToolsCount;
 
   return (
@@ -494,8 +541,8 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                 type="button"
                 disabled={Boolean(savingToolId)}
                 onClick={() =>
-                  void persistPaidTabs(
-                    DEFAULT_PAID_TABS,
+                  void persistLockedTools(
+                    DEFAULT_LOCKED_TOOLS,
                     '__reset__',
                     'تمت استعادة الإعداد الافتراضي (الأدوات المتقدمة مقفلة لغير المشتركين).'
                   )
@@ -509,7 +556,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                 type="button"
                 disabled={Boolean(savingToolId)}
                 onClick={() =>
-                  void persistPaidTabs(
+                  void persistLockedTools(
                     [],
                     '__unlock_all__',
                     'تم فتح جميع أدوات المنصة مجاناً لكافة المستخدمين.'
@@ -522,6 +569,24 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
               </button>
             </div>
           </div>
+
+          {lastSavedInfo && (
+            <div
+              className={`px-3.5 py-2.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                lastSavedInfo.syncedToCloud
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                  : 'bg-amber-500/10 border-amber-500/35 text-amber-300'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{lastSavedInfo.message}</span>
+              </div>
+              <span className="text-[10px] font-mono opacity-80 shrink-0" dir="ltr">
+                {lastSavedInfo.syncedToCloud ? 'Firestore + Local' : 'Local Backup'} • {new Date(lastSavedInfo.savedAt).toLocaleTimeString('ar-SA')}
+              </span>
+            </div>
+          )}
 
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />
@@ -556,7 +621,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                   <div className="divide-y divide-gray-800/80">
                     {groupTools.map((tool) => {
                       const isProfile = tool.id === 'profile';
-                      const isPaid = accessState.isTabPaidForUsers(tool.id);
+                      const isPaid = accessState.isToolInLockedList(tool.id);
                       const isBusy = savingToolId === tool.id || savingToolId === '__reset__' || savingToolId === '__unlock_all__';
 
                       return (
@@ -595,8 +660,20 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                                   }`}
                                 >
                                   {isPaid ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                                  <span>{isPaid ? 'مدفوعة (مقفلة لغير المشتركين)' : 'مجانية (مفتوحة للجميع)'}</span>
+                                  <span>{isPaid ? 'مقفلة للمستخدمين الآخرين (مفتوحة لك)' : 'مجانية (مفتوحة للجميع)'}</span>
                                 </span>
+
+                                {onOpenTool && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTool(tool.id)}
+                                    title={`فتح أداة ${tool.label} مباشرة`}
+                                    className="px-2.5 py-1.5 rounded-lg border border-gray-700 bg-gray-950 hover:bg-gray-800 text-gray-200 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                                  >
+                                    <ExternalLink className="w-3 h-3 text-[#D4AF37]" />
+                                    <span>فتح</span>
+                                  </button>
+                                )}
 
                                 <button
                                   type="button"
@@ -615,7 +692,7 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                                   ) : (
                                     <Lock className="w-3.5 h-3.5" />
                                   )}
-                                  <span>{isPaid ? 'فتح مجاناً' : 'قفل كمدفوعة'}</span>
+                                  <span>{isPaid ? 'فتح مجاناً' : 'قفل للآخرين'}</span>
                                 </button>
                               </>
                             )}

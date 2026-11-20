@@ -11,7 +11,7 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'prompt',
+        registerType: 'autoUpdate',
         filename: 'sw.js',
         manifest: false,
         includeAssets: [
@@ -29,6 +29,8 @@ export default defineConfig(() => {
           globIgnores: ['**/aistudio/**'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024, // 6MB
           cleanupOutdatedCaches: true,
+          skipWaiting: true,
+          clientsClaim: true,
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,

@@ -187,14 +187,15 @@
     },
     "PlatformToolConfig": {
       "title": "PlatformToolConfig",
-      "description": "Owner-managed list of paid/locked tabs enforced for non-subscribed users",
+      "description": "Owner-managed list of locked tools (lockedTools) enforced for non-subscribed users",
       "type": "object",
       "properties": {
+        "lockedTools": { "type": "array" },
         "paidTabs": { "type": "array" },
         "updatedBy": { "type": "string", "maxLength": 128 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [ "paidTabs", "updatedAt" ]
+      "required": [ "lockedTools", "updatedAt" ]
     }
   },
   "firestore": {

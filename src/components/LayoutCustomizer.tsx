@@ -477,6 +477,8 @@ interface LayoutCustomizerDrawerProps {
   onResetPreferences: () => void;
   syncStatus: 'idle' | 'saving' | 'saved' | 'local-only';
   isCloudAuthenticated: boolean;
+  isOwner?: boolean;
+  isTabPaidForUsers?: (tabId: AppTabId) => boolean;
   isTabLocked?: (tabId: AppTabId) => boolean;
   onLockedTabClick?: (tabId: AppTabId) => void;
 }
@@ -489,6 +491,8 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
   onResetPreferences,
   syncStatus,
   isCloudAuthenticated,
+  isOwner,
+  isTabPaidForUsers,
   isTabLocked,
   onLockedTabClick,
 }) => {
@@ -746,13 +750,15 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
 
                 <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
                   {NAV_TABS_META.map((tab) => {
-                    const locked = Boolean(isTabLocked?.(tab.id));
+                    const locked = !isOwner && Boolean(isTabLocked?.(tab.id));
+                    const lockedForOthers = Boolean(isOwner && isTabPaidForUsers?.(tab.id));
                     const active = !locked && preferences.multiGridPanels.includes(tab.id);
                     return (
                       <button
                         key={tab.id}
                         type="button"
                         onClick={() => toggleGridPanel(tab.id)}
+                        title={lockedForOthers ? `${tab.label} — مقفلة للمستخدمين الآخرين (مفتوحة لك)` : tab.label}
                         className={`px-2.5 py-2 rounded-xl border text-[11px] font-medium flex items-center justify-between gap-1.5 transition cursor-pointer ${
                           active
                             ? 'bg-[#D4AF37]/15 border-[#D4AF37]/60 text-white'
@@ -765,7 +771,10 @@ export const LayoutCustomizerDrawer: React.FC<LayoutCustomizerDrawerProps> = ({
                         {locked ? (
                           <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
                         ) : (
-                          active && <Check className="w-3 h-3 text-[#D4AF37] shrink-0" />
+                          <span className="flex items-center gap-1 shrink-0">
+                            {lockedForOthers && <Lock className="w-2.5 h-2.5 text-amber-400/80" />}
+                            {active && <Check className="w-3 h-3 text-[#D4AF37]" />}
+                          </span>
                         )}
                       </button>
                     );

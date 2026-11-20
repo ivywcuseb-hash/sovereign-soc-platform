@@ -126,11 +126,22 @@ service cloud.firestore {
     // Platform Tool Access Configuration (Owner/Admin Controlled Paid/Free Tabs)
     // =========================================================================
     function isValidPlatformToolConfig(data) {
-      return data.keys().hasAll(['paidTabs', 'updatedAt'])
-        && data.keys().hasOnly(['paidTabs', 'updatedBy', 'updatedAt'])
-        && data.paidTabs is list
-        && data.paidTabs.size() <= 100
-        && (data.paidTabs.size() == 0 || (data.paidTabs[0] is string && data.paidTabs[0].size() <= 64))
+      return data.keys().hasAll(['updatedAt'])
+        && data.keys().hasOnly(['lockedTools', 'paidTabs', 'updatedBy', 'updatedAt'])
+        && (
+          ('lockedTools' in data && data.lockedTools is list) ||
+          ('paidTabs' in data && data.paidTabs is list)
+        )
+        && (!('lockedTools' in data) || (
+          data.lockedTools is list
+          && data.lockedTools.size() <= 100
+          && (data.lockedTools.size() == 0 || (data.lockedTools[0] is string && data.lockedTools[0].size() <= 64))
+        ))
+        && (!('paidTabs' in data) || (
+          data.paidTabs is list
+          && data.paidTabs.size() <= 100
+          && (data.paidTabs.size() == 0 || (data.paidTabs[0] is string && data.paidTabs[0].size() <= 64))
+        ))
         && data.updatedAt is string && data.updatedAt.size() <= 64
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
     }
