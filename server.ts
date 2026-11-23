@@ -14,14 +14,9 @@ import { getFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 import { gatherLiveOsintTelemetry, evaluateTelemetryHeuristically } from './src/utils/threatIntelServer.ts';
 import { BUILTIN_THREAT_FEEDS, syncLiveThreatFeeds } from './src/utils/liveThreatFeedsServer.ts';
-import breachLookupHandler from './api/breach-lookup.ts';
-import sslInspectHandler from './api/ssl-inspect.ts';
-import ipGeoThreatHandler from './api/ip-geo-threat.ts';
-import malwareHashHandler from './api/malware-hash.ts';
-import urlTraceHandler from './api/url-trace.ts';
-import socKevEpssHandler from './api/soc-kev-epss.ts';
-import liveVoiceTurnHandler from './api/live-voice-turn.ts';
-import siteAssistantHandler from './api/site-assistant.ts';
+import { malwareHashHandler, urlTraceHandler } from './server/handlers/forensic.js';
+import { breachLookupHandler, sslInspectHandler, ipGeoThreatHandler, socKevEpssHandler } from './server/handlers/security.js';
+import { siteAssistantHandler, liveVoiceTurnHandler } from './server/handlers/assistant.js';
 import {
   type AuthedRequest,
   securityMonitor,
