@@ -17,18 +17,18 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Server-side Admin & verified Platform Owner verification: clients can NEVER write to /admins/{uid}
+    // Server-side Admin & verified Platform Owner verification
     function isAdmin() {
       return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.uid == 'T1C6FEfH2CYtQm7mWElPY1L0x3I3' ||
         (
           request.auth.token.email is string &&
           request.auth.token.email.lower() in ['ivywcusel@gmail.com', 'ivywcuseb@gmail.com']
         ) ||
+        request.auth.uid == 'T1C6FEfH2CYtQm7mWElPY1L0x3I3' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner']
         )
       );
     }
@@ -70,7 +70,7 @@ service cloud.firestore {
         && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'role', 'settings', 'createdAt'])
         && data.uid == request.auth.uid
         && data.email is string && data.email.size() <= 320
-        && (!('role' in data) || data.role == 'analyst' || (data.role == 'admin' && isAdmin()))
+        && (!('role' in data) || data.role == 'analyst' || (data.role in ['admin', 'owner'] && isAdmin()))
         && (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 128))
         && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 2048))
         && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 64))
@@ -82,7 +82,7 @@ service cloud.firestore {
         && (!('displayName' in next) || (next.displayName is string && next.displayName.size() <= 128))
         && (!('photoURL' in next) || (next.photoURL is string && next.photoURL.size() <= 2048))
         && (!('settings' in next) || next.settings is map)
-        && (!('role' in next) || next.role in ['analyst', 'admin'])
+        && (!('role' in next) || next.role in ['analyst', 'admin', 'owner'])
         && (
           (next.diff(prev).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings']) && (!('role' in prev) || next.role == prev.role)) ||
           (isAdmin() && next.diff(prev).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings', 'role']))
@@ -137,16 +137,8 @@ service cloud.firestore {
           ('lockedTools' in data && data.lockedTools is list) ||
           ('paidTabs' in data && data.paidTabs is list)
         )
-        && (!('lockedTools' in data) || (
-          data.lockedTools is list
-          && data.lockedTools.size() <= 100
-          && (data.lockedTools.size() == 0 || (data.lockedTools[0] is string && data.lockedTools[0].size() <= 64))
-        ))
-        && (!('paidTabs' in data) || (
-          data.paidTabs is list
-          && data.paidTabs.size() <= 100
-          && (data.paidTabs.size() == 0 || (data.paidTabs[0] is string && data.paidTabs[0].size() <= 64))
-        ))
+        && (!('lockedTools' in data) || (data.lockedTools is list && data.lockedTools.size() <= 100))
+        && (!('paidTabs' in data) || (data.paidTabs is list && data.paidTabs.size() <= 100))
         && data.updatedAt is string && data.updatedAt.size() <= 64
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
     }
@@ -179,10 +171,8 @@ service cloud.firestore {
         && (!('announcementUpdatedAt' in data) || (data.announcementUpdatedAt is string && data.announcementUpdatedAt.size() <= 64))
         && data.maintenanceTools is list
         && data.maintenanceTools.size() <= 100
-        && (data.maintenanceTools.size() == 0 || (data.maintenanceTools[0] is string && data.maintenanceTools[0].size() <= 64))
         && data.maintenanceGroups is list
         && data.maintenanceGroups.size() <= 10
-        && (data.maintenanceGroups.size() == 0 || (data.maintenanceGroups[0] is string && data.maintenanceGroups[0].size() <= 32))
         && data.maintenanceMessage is string && data.maintenanceMessage.size() <= 500
         && (!('maintenanceUpdatedAt' in data) || (data.maintenanceUpdatedAt is string && data.maintenanceUpdatedAt.size() <= 64))
         && data.updatedAt is string && data.updatedAt.size() <= 64
@@ -330,7 +320,7 @@ service cloud.firestore {
         && (!('iocCount' in data) || (data.iocCount is number && data.iocCount >= 0))
         && (!('custodyCount' in data) || (data.custodyCount is number && data.custodyCount >= 0))
         && (!('exportFormat' in data) || (data.exportFormat is string && data.exportFormat.size() <= 32))
-        && (!('evidenceSha256List' in data) || (data.evidenceSha256List is list && data.evidenceSha256List.size() <= 100 && (data.evidenceSha256List.size() == 0 || data.evidenceSha256List[0] is string)));
+        && (!('evidenceSha256List' in data) || (data.evidenceSha256List is list && data.evidenceSha256List.size() <= 100));
     }
 
     match /forensic_reports/{reportId} {
