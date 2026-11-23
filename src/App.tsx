@@ -82,7 +82,10 @@ import {
   AudioLines,
   Mic,
   MailCheck,
-  FileCode2
+  FileCode2,
+  Megaphone,
+  Wrench,
+  Info,
 } from 'lucide-react';
 import {
   LayoutCustomizerDrawer,
@@ -204,6 +207,7 @@ import { LiveDnsInspectorLab } from './components/LiveDnsInspectorLab';
 import { IqDomainSecurityAuditorLab } from './components/IqDomainSecurityAuditorLab';
 import { IpIntelligenceAsnLookupLab } from './components/IpIntelligenceAsnLookupLab';
 import { PhishingUrlDeepInspectorLab } from './components/PhishingUrlDeepInspectorLab';
+import { SiteInboxAssistantBot } from './components/SiteInboxAssistantBot';
 import { EvidenceDailyChart } from './components/EvidenceDailyChart';
 import {
   computeSovereignAccessState,
@@ -219,8 +223,16 @@ import {
 import {
   SubscriptionPaywallModal,
   SubscriptionInlineGate,
+  MaintenanceModeNotice,
   AdminSubscriptionManager,
 } from './components/SubscriptionGate';
+import {
+  ANNOUNCEMENT_TYPE_META,
+  DEFAULT_PLATFORM_SITE_CONTROLS,
+  getTabMaintenanceInfo,
+  subscribeToPlatformSiteControls,
+  type PlatformSiteControls,
+} from './utils/platformControls';
 import type { LiveNetworkTelemetry } from './utils/threatIntelServer';
 
 import { 
@@ -483,7 +495,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   const [showVoiceCommandHud, setShowVoiceCommandHud] = useState<boolean>(false);
   const lastPickedFileRef = React.useRef<File | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector' | 'log_analyzer' | 'exif_inspector' | 'live_dns_inspector' | 'iq_domain_auditor' | 'ip_isp_asn_lookup' | 'phishing_url_inspector'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'analyzer' | 'apk' | 'browser' | 'threat_intel' | 'deobfuscator' | 'binary_lab' | 'live_feeds' | 'email' | 'clipboard' | 'search' | 'ela' | 'hex' | 'audit' | 'evidence' | 'profile' | 'samples' | 'comparison' | 'custody' | 'parser' | 'reports' | 'breach_lookup' | 'archive_extractor' | 'ssl_inspector' | 'ip_mapper' | 'malware_hash' | 'pdf_forensics' | 'url_tracer' | 'steg_inspector' | 'cyber_telemetry' | 'vuln_kev_dashboard' | 'asset_os_dashboard' | 'live_voice' | 'dns_email_auditor' | 'yara_scanner' | 'jwt_inspector' | 'pcap_inspector' | 'log_analyzer' | 'exif_inspector' | 'live_dns_inspector' | 'iq_domain_auditor' | 'ip_isp_asn_lookup' | 'phishing_url_inspector' | 'site_assistant'>('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -1263,6 +1275,10 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
   );
   const [subscriptionLoaded, setSubscriptionLoaded] = useState<boolean>(false);
   const [lockedToolsConfig, setLockedToolsConfig] = useState<AppTabId[] | null>(() => readLocalLockedToolsBackup());
+  const [siteControls, setSiteControls] = useState<PlatformSiteControls>(DEFAULT_PLATFORM_SITE_CONTROLS);
+  const [siteControlsLoaded, setSiteControlsLoaded] = useState<boolean>(false);
+  const [adminPreviewMaintenanceTab, setAdminPreviewMaintenanceTab] = useState<AppTabId | null>(null);
+  const [requestedAdminTab, setRequestedAdminTab] = useState<'tools' | 'announcement' | 'maintenance' | 'users' | null>(null);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState<boolean>(false);
   const [lockedToolPromptTab, setLockedToolPromptTab] = useState<AppTabId | null>(null);
   const uiPrefsRef = React.useRef<UiPreferences>(uiPrefs);
@@ -1378,6 +1394,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
 
   const handleSelectTab = (tab: AppTabId) => {
     setMobileSidebarOpen(false);
+    setAdminPreviewMaintenanceTab(null);
     if (accessState.isTabLocked(tab)) {
       setLockedToolPromptTab(tab);
       setShowSubscriptionModal(true);
@@ -1393,8 +1410,31 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     }
   };
 
+  const openOwnerConsoleTab = (consoleTab: 'tools' | 'announcement' | 'maintenance' | 'users') => {
+    setRequestedAdminTab(consoleTab);
+    handleSelectTab('profile');
+    window.setTimeout(() => {
+      document.getElementById('owner-management-console')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 90);
+  };
+
+  const activeTabMaintenance = useMemo(
+    () => getTabMaintenanceInfo(siteControls, activeTab),
+    [siteControls, activeTab]
+  );
+
+  const safeMaintenanceFallbackTab: AppTabId = useMemo(
+    () => (getTabMaintenanceInfo(siteControls, 'dashboard').inMaintenance ? 'profile' : 'dashboard'),
+    [siteControls]
+  );
+
   const isTabVisible = (tab: AppTabId): boolean => {
     if (accessState.isTabLocked(tab)) return false;
+    const maintInfo = getTabMaintenanceInfo(siteControls, tab);
+    if (maintInfo.inMaintenance) {
+      if (!accessState.isAdminOrOwner) return false;
+      if (adminPreviewMaintenanceTab === tab) return false;
+    }
     if (uiPrefs.layoutStructure === 'multi_grid') {
       return uiPrefs.multiGridPanels.includes(tab);
     }
@@ -1501,6 +1541,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         setUserSubscription(null);
         setSubscriptionLoaded(false);
         setLockedToolsConfig(readLocalLockedToolsBackup());
+        setSiteControls(DEFAULT_PLATFORM_SITE_CONTROLS);
+        setSiteControlsLoaded(false);
         setShowSubscriptionModal(false);
       }
       setAuthReady(true);
@@ -1692,6 +1734,16 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       setLockedToolsConfig(nextLockedTools);
     });
 
+    const unsubSiteControls = subscribeToPlatformSiteControls(
+      (nextControls) => {
+        setSiteControls(nextControls);
+        setSiteControlsLoaded(true);
+      },
+      () => {
+        setSiteControlsLoaded(true);
+      }
+    );
+
     return () => {
       unsubInvestigations();
       unsubEvidence();
@@ -1700,6 +1752,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       unsubReports();
       unsubSubscription();
       unsubToolAccess();
+      unsubSiteControls();
     };
   }, [isCloudAuthenticated, user?.uid]);
 
@@ -3141,7 +3194,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
     };
   };
 
-  const handleExportOfficialReport = async (format: 'html' | 'json' | 'csv') => {
+  const handleExportOfficialReport = async (format: 'html' | 'pdf' | 'json' | 'csv') => {
     const activeItems = reportSelectedEvidenceIds.length > 0
       ? evidenceList.filter(e => reportSelectedEvidenceIds.includes(e.id))
       : evidenceList.filter(e => !currentInvestigationId || e.investigationId === currentInvestigationId);
@@ -3157,30 +3210,39 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
       const sealSha256 = await computeReportSealSha256(dossier);
       setReportLastSealSha256(sealSha256);
 
-      let content = '';
-      let mime = 'text/html;charset=utf-8';
+      const safeCase = dossier.caseNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
+      let blob: Blob;
       let ext = 'html';
 
-      if (format === 'html') {
-        content = generateOfficialHtmlReport(dossier, sealSha256);
-        mime = 'text/html;charset=utf-8';
-        ext = 'html';
-      } else if (format === 'json') {
-        content = generateOfficialJsonDossier(dossier, sealSha256);
-        mime = 'application/json;charset=utf-8';
-        ext = 'json';
+      if (format === 'pdf') {
+        const { generateOfficialPdfBlob } = await import('./utils/pdfReportGenerator');
+        blob = await generateOfficialPdfBlob(dossier, sealSha256);
+        ext = 'pdf';
       } else {
-        content = generateOfficialCsvManifest(dossier, sealSha256);
-        mime = 'text/csv;charset=utf-8';
-        ext = 'csv';
+        let content = '';
+        let mime = 'text/html;charset=utf-8';
+
+        if (format === 'html') {
+          content = generateOfficialHtmlReport(dossier, sealSha256);
+          mime = 'text/html;charset=utf-8';
+          ext = 'html';
+        } else if (format === 'json') {
+          content = generateOfficialJsonDossier(dossier, sealSha256);
+          mime = 'application/json;charset=utf-8';
+          ext = 'json';
+        } else {
+          content = generateOfficialCsvManifest(dossier, sealSha256);
+          mime = 'text/csv;charset=utf-8';
+          ext = 'csv';
+        }
+        blob = new Blob([content], { type: mime });
       }
 
       // Download official report file
-      const blob = new Blob([content], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Sovereign_Forensic_Report_${dossier.caseNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}.${ext}`;
+      a.download = `Sovereign_Forensic_Report_${safeCase}.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -6101,6 +6163,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 if (groupItems.length === 0) return null;
                 const currentGroup = NAV_TABS_META.find((t) => t.id === activeTab)?.group || 'command';
                 const isGroupActive = currentGroup === groupKey;
+                const isGroupMaint = siteControls.maintenanceGroups.includes(groupKey);
                 return (
                   <button
                     key={groupKey}
@@ -6111,13 +6174,18 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                         handleSelectTab(firstAccessible.id);
                       }
                     }}
-                    className={`whitespace-nowrap shrink-0 pb-1 border-b-2 transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap shrink-0 pb-1 border-b-2 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
                       isGroupActive
                         ? 'text-[#D4AF37] border-[#D4AF37] font-bold'
                         : 'border-transparent hover:text-white'
                     }`}
                   >
-                    {groupItems[0].groupLabel}
+                    <span>{groupItems[0].groupLabel}</span>
+                    {isGroupMaint && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold">
+                        صيانة
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -6286,6 +6354,73 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
         </div>
       </header>
 
+      {/* Real-Time Firestore Platform Announcement / Alert Banner */}
+      {authReady &&
+        user &&
+        siteControls.announcementEnabled &&
+        siteControls.announcementText.trim().length > 0 && (() => {
+          const typeMeta = ANNOUNCEMENT_TYPE_META[siteControls.announcementType];
+          const bannerClasses =
+            siteControls.announcementType === 'critical'
+              ? 'bg-red-950/85 border-red-500/60 text-red-100'
+              : siteControls.announcementType === 'warning'
+              ? 'bg-amber-950/80 border-amber-500/60 text-amber-100'
+              : siteControls.announcementType === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-100'
+              : 'bg-sky-950/80 border-sky-500/60 text-sky-100';
+          const badgeClasses =
+            siteControls.announcementType === 'critical'
+              ? 'bg-red-500/25 border-red-400/50 text-red-200'
+              : siteControls.announcementType === 'warning'
+              ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
+              : siteControls.announcementType === 'success'
+              ? 'bg-emerald-500/25 border-emerald-400/50 text-emerald-200'
+              : 'bg-sky-500/25 border-sky-400/50 text-sky-200';
+          const BannerIcon =
+            siteControls.announcementType === 'critical'
+              ? AlertOctagon
+              : siteControls.announcementType === 'warning'
+              ? AlertTriangle
+              : siteControls.announcementType === 'success'
+              ? CheckCircle2
+              : Megaphone;
+          return (
+            <div
+              role="status"
+              dir="rtl"
+              className={`border-b px-4 sm:px-6 py-2.5 backdrop-blur-md no-print ${bannerClasses}`}
+            >
+              <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <BannerIcon className="w-4 h-4 shrink-0" />
+                  <span className={`px-2 py-0.5 rounded-md border text-[10px] font-bold shrink-0 ${badgeClasses}`}>
+                    {typeMeta.badgeAr}
+                  </span>
+                  <span className="font-medium leading-relaxed break-words">
+                    {siteControls.announcementText}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {siteControls.announcementUpdatedAt && (
+                    <span className="text-[10px] font-mono opacity-75 hidden sm:inline" dir="ltr">
+                      {new Date(siteControls.announcementUpdatedAt).toLocaleTimeString('ar-SA')}
+                    </span>
+                  )}
+                  {accessState.isAdminOrOwner && (
+                    <button
+                      type="button"
+                      onClick={() => openOwnerConsoleTab('announcement')}
+                      className="px-2.5 py-1 rounded-lg bg-black/30 hover:bg-black/50 border border-white/20 text-[10px] font-bold transition cursor-pointer"
+                    >
+                      إدارة التنبيه
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
       {/* Main Workspace Frame (Supports Top Navbar, Collapsible Vertical Sidebar & Multi-Panel Grid) */}
       <div className="flex-1 flex min-h-0 relative">
         {/* Smart Collapsible / Minimal Vertical Sidebar */}
@@ -6370,13 +6505,16 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                         const isActive = activeTab === item.id;
                         const locked = accessState.isTabLocked(item.id);
                         const lockedForOthers = accessState.isOwner && accessState.isToolInLockedList(item.id);
+                        const inMaint = getTabMaintenanceInfo(siteControls, item.id).inMaintenance;
                         return (
                           <button
                             key={item.id}
                             type="button"
                             onClick={() => handleSelectTab(item.id)}
                             title={
-                              locked
+                              inMaint
+                                ? `${item.label} (تحت الصيانة المؤقتة)`
+                                : locked
                                 ? `${item.label} (يتطلب اشتراكاً)`
                                 : lockedForOthers
                                 ? `${item.label} — مقفلة للمستخدمين الآخرين (مفتوحة لك كمالك)`
@@ -6387,6 +6525,8 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                             } py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
                               isActive
                                 ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/40 font-bold'
+                                : inMaint
+                                ? 'text-amber-300/90 hover:bg-gray-900 border border-transparent'
                                 : locked
                                 ? 'text-gray-400 hover:bg-gray-900 hover:text-amber-300 border border-transparent'
                                 : 'text-gray-300 hover:bg-gray-900 hover:text-white border border-transparent'
@@ -6396,18 +6536,26 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                               <span className="shrink-0">{renderTabIcon(item.id, 'w-4 h-4')}</span>
                               {!effectiveSidebarCollapsed && <span className="truncate">{item.label}</span>}
                             </div>
-                            {!effectiveSidebarCollapsed && locked && (
+                            {!effectiveSidebarCollapsed && inMaint && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/35 text-amber-300 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5">
+                                <Wrench className="w-2.5 h-2.5" />
+                                صيانة
+                              </span>
+                            )}
+                            {!effectiveSidebarCollapsed && !inMaint && locked && (
                               <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />
                             )}
-                            {!effectiveSidebarCollapsed && lockedForOthers && (
+                            {!effectiveSidebarCollapsed && !inMaint && lockedForOthers && (
                               <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5">
                                 <Lock className="w-2.5 h-2.5" />
                                 للآخرين
                               </span>
                             )}
-                            {effectiveSidebarCollapsed && lockedForOthers && (
+                            {effectiveSidebarCollapsed && (inMaint ? (
+                              <Wrench className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                            ) : lockedForOthers ? (
                               <Lock className="w-2.5 h-2.5 text-amber-400/80 shrink-0" />
-                            )}
+                            ) : null)}
                           </button>
                         );
                       })}
@@ -6444,6 +6592,7 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 if (groupItems.length === 0) return null;
                 const currentGroup = NAV_TABS_META.find((t) => t.id === activeTab)?.group || 'command';
                 const isGroupActive = currentGroup === groupKey;
+                const isGroupMaint = siteControls.maintenanceGroups.includes(groupKey);
                 return (
                   <button
                     key={groupKey}
@@ -6454,13 +6603,18 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                         handleSelectTab(firstAccessible.id);
                       }
                     }}
-                    className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
+                    className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border inline-flex items-center gap-1.5 ${
                       isGroupActive
                         ? 'bg-[#D4AF37]/15 border-[#D4AF37]/50 text-[#D4AF37] font-bold'
                         : 'bg-gray-900 border-gray-800 text-gray-300 hover:text-white'
                     }`}
                   >
-                    {groupItems[0].groupLabel}
+                    <span>{groupItems[0].groupLabel}</span>
+                    {isGroupMaint && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold">
+                        صيانة
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -6473,21 +6627,27 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
               ).map((item) => {
                 const locked = accessState.isTabLocked(item.id);
                 const lockedForOthers = accessState.isOwner && accessState.isToolInLockedList(item.id);
+                const inMaint = getTabMaintenanceInfo(siteControls, item.id).inMaintenance;
+                const activeDisplay = activeTab === item.id || isTabVisible(item.id);
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectTab(item.id)}
                     title={
-                      locked
+                      inMaint
+                        ? `${item.label} (تحت الصيانة المؤقتة)`
+                        : locked
                         ? `${item.label} (يتطلب اشتراكاً)`
                         : lockedForOthers
                         ? `${item.label} — مقفلة للمستخدمين الآخرين (مفتوحة لك كمالك)`
                         : item.label
                     }
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
-                      isTabVisible(item.id)
+                      activeDisplay
                         ? 'bg-[#D4AF37] border-[#D4AF37] text-gray-950 font-bold'
+                        : inMaint
+                        ? 'bg-amber-950/40 border-amber-500/40 text-amber-300 hover:border-amber-400'
                         : locked
                         ? 'bg-gray-900/70 border-gray-800 text-gray-400 hover:border-amber-500/40 hover:text-amber-300'
                         : 'bg-gray-900/90 border-gray-800 text-gray-300 hover:border-gray-700 hover:text-white'
@@ -6495,11 +6655,23 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   >
                     {renderTabIcon(item.id, 'w-3.5 h-3.5')}
                     <span>{item.shortLabel}</span>
-                    {locked && <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />}
-                    {lockedForOthers && (
+                    {inMaint && (
                       <span
                         className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold shrink-0 ${
-                          isTabVisible(item.id)
+                          activeDisplay
+                            ? 'bg-gray-950/20 text-gray-950'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}
+                      >
+                        <Wrench className="w-2.5 h-2.5" />
+                        <span>صيانة</span>
+                      </span>
+                    )}
+                    {!inMaint && locked && <Lock className="w-3 h-3 text-amber-400/80 shrink-0" />}
+                    {!inMaint && lockedForOthers && (
+                      <span
+                        className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                          activeDisplay
                             ? 'bg-gray-950/20 text-gray-950'
                             : 'bg-amber-500/15 text-amber-300'
                         }`}
@@ -6803,6 +6975,54 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   </div>
                 )}
 
+              {accessState.isAdminOrOwner &&
+                uiPrefs.layoutStructure !== 'multi_grid' &&
+                activeTab !== 'profile' &&
+                activeTabMaintenance.inMaintenance &&
+                adminPreviewMaintenanceTab !== activeTab && (
+                  <div className="px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-amber-200 font-bold min-w-0">
+                      <Wrench className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="truncate">
+                        وضع الصيانة مفعّل للمستخدمين ({activeTabMaintenance.scope === 'group' ? `قسم ${activeTabMaintenance.groupLabel}` : activeTabMaintenance.toolLabel}): {activeTabMaintenance.message}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setAdminPreviewMaintenanceTab(activeTab)}
+                        className="px-2.5 py-1 rounded-lg bg-gray-950/70 hover:bg-gray-900 border border-amber-500/40 text-amber-200 text-[11px] font-bold cursor-pointer transition"
+                      >
+                        معاينة شاشة الصيانة
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openOwnerConsoleTab('maintenance')}
+                        className="px-2.5 py-1 rounded-lg bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 text-[11px] font-bold cursor-pointer transition"
+                      >
+                        إدارة الصيانة
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              {uiPrefs.layoutStructure !== 'multi_grid' &&
+                !accessState.isTabLocked(activeTab) &&
+                activeTabMaintenance.inMaintenance &&
+                (!accessState.isAdminOrOwner || adminPreviewMaintenanceTab === activeTab) && (
+                  <MaintenanceModeNotice
+                    status={activeTabMaintenance}
+                    isAdminPreview={accessState.isAdminOrOwner && adminPreviewMaintenanceTab === activeTab}
+                    onExitAdminPreview={() => setAdminPreviewMaintenanceTab(null)}
+                    onBackToSafeTab={() => handleSelectTab(safeMaintenanceFallbackTab)}
+                    backButtonLabel={
+                      safeMaintenanceFallbackTab === 'profile'
+                        ? 'الانتقال إلى الحساب والإعدادات'
+                        : 'العودة للوحة الرئيسية'
+                    }
+                  />
+                )}
+
               {uiPrefs.layoutStructure !== 'multi_grid' && accessState.isTabLocked(activeTab) && (
                 <SubscriptionInlineGate
                   tabId={activeTab}
@@ -6812,9 +7032,29 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                     setLockedToolPromptTab(activeTab);
                     setShowSubscriptionModal(true);
                   }}
-                  onBackToDashboard={() => handleSelectTab('dashboard')}
+                  onBackToDashboard={() => handleSelectTab(safeMaintenanceFallbackTab)}
                 />
               )}
+              {uiPrefs.layoutStructure === 'multi_grid' &&
+                uiPrefs.multiGridPanels
+                  .filter((panelId) => {
+                    if (accessState.isTabLocked(panelId)) return false;
+                    return !accessState.isAdminOrOwner && getTabMaintenanceInfo(siteControls, panelId).inMaintenance;
+                  })
+                  .map((maintPanelId) => (
+                    <MaintenanceModeNotice
+                      key={`maint-grid-${maintPanelId}`}
+                      status={getTabMaintenanceInfo(siteControls, maintPanelId)}
+                      onBackToSafeTab={() =>
+                        updateUiPreferences({
+                          multiGridPanels: uiPrefs.multiGridPanels.filter(
+                            (p) => !getTabMaintenanceInfo(siteControls, p).inMaintenance
+                          ),
+                        })
+                      }
+                      backButtonLabel="إزالة اللوحة من الشبكة"
+                    />
+                  ))}
               {uiPrefs.layoutStructure === 'multi_grid' &&
                 uiPrefs.multiGridPanels
                   .filter((panelId) => accessState.isTabLocked(panelId))
@@ -9885,8 +10125,15 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                   <AdminSubscriptionManager
                     currentUserUid={user.uid}
                     accessState={accessState}
+                    siteControls={siteControls}
+                    siteControlsLoaded={siteControlsLoaded}
+                    requestedAdminTab={requestedAdminTab}
                     onLockedToolsSaved={handleOwnerLockedToolsUpdated}
                     onPaidTabsSaved={handleOwnerLockedToolsUpdated}
+                    onSiteControlsSaved={(nextControls) => {
+                      setSiteControls(nextControls);
+                      setSiteControlsLoaded(true);
+                    }}
                     onOpenTool={(tabId) => handleSelectTab(tabId)}
                     onNotify={notifyStatus}
                   />
@@ -11140,20 +11387,31 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                       <button
                         type="button"
                         disabled={isGeneratingReport || selectedEvidence.length === 0}
-                        onClick={() => handleExportOfficialReport('html')}
+                        onClick={() => handleExportOfficialReport('pdf')}
                         className="py-3 px-4 bg-gradient-to-r from-[#D4AF37] to-[#b8972e] text-gray-950 font-bold rounded-xl text-xs shadow-lg hover:opacity-95 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        <FileText className="w-4 h-4" />
+                        تصدير التقرير الجنائي الموثق (PDF)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isGeneratingReport || selectedEvidence.length === 0}
+                        onClick={() => handleExportOfficialReport('html')}
+                        className="py-3 px-4 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 disabled:opacity-50"
                       >
                         <Download className="w-4 h-4" />
                         تصدير ملف التقرير الرسمي الموثق (HTML)
                       </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <button
                         type="button"
-                        disabled={selectedEvidence.length === 0}
+                        disabled={isGeneratingReport || selectedEvidence.length === 0}
                         onClick={() => window.print()}
-                        className="py-3 px-4 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 disabled:opacity-50"
                       >
-                        <Printer className="w-4 h-4" />
-                        طباعة / حفظ كـ PDF رسمي مباشر
+                        <Printer className="w-4 h-4 text-sky-400" />
+                        طباعة / حفظ كـ PDF مباشر
                       </button>
                       <button
                         type="button"
@@ -14806,6 +15064,84 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                 : null,
             }}
             onNotify={notifyStatus}
+            onRecordAudit={(p) =>
+              void saveAuditLog({
+                id: p.id,
+                timestamp: new Date().toISOString(),
+                fileName: p.fileName,
+                fileSize: p.fileSize,
+                verdict: p.verdict,
+                score: p.score,
+                risk: p.risk,
+                type: 'clipboard',
+                sha256: p.sha256,
+              })
+            }
+          />
+        )}
+
+        {isTabVisible('site_assistant') && (
+          <SiteInboxAssistantBot
+            siteSnapshot={{
+              userName: userProfile?.displayName || user?.displayName || undefined,
+              userEmail: user?.email || undefined,
+              userRole: userProfile?.role || 'analyst',
+              activeTab,
+              counts: {
+                investigations: investigations.length,
+                evidence: evidenceList.length,
+                auditLogs: auditLogs.length,
+                custody: custodyHistory.length,
+                savedReports: savedReports.length,
+                liveFeeds: liveFeedsResult?.items?.length || 0,
+                telemetry: telemetryLogs.length,
+                criticalAlerts:
+                  auditLogs.filter((l) => l.risk === 'حرج' || l.risk === 'مرتفع').length +
+                  (liveFeedsResult?.items?.filter((f) => f.severity === 'critical' || f.severity === 'high').length || 0),
+                unlockedTools: NAV_TABS_META.filter((t) => accessState.canOpenTool(t.id)).length,
+                lockedTools: accessState.lockedTools.length,
+              },
+              investigations: investigations.slice(0, 12).map((inv) => ({
+                title: inv.title,
+                caseNumber: inv.caseNumber,
+                status: inv.status,
+                createdAt: inv.createdAt,
+              })),
+              evidence: evidenceList.slice(0, 20).map((ev) => ({
+                fileName: ev.fileName,
+                fileSize: ev.fileSize,
+                sha256: ev.sha256,
+                riskLevel: ev.analysis?.riskLevel,
+                verdict: ev.analysis?.verdict,
+                authenticityScore: ev.analysis?.authenticityScore,
+                detectedFileType: ev.analysis?.detectedFileType,
+                isMasqueraded: ev.analysis?.isMasqueraded,
+                createdAt: ev.createdAt,
+              })),
+              liveFeeds: (liveFeedsResult?.items || []).slice(0, 15).map((item) => ({
+                title: item.title,
+                sourceName: item.sourceName,
+                severity: item.severity,
+                indicator: item.indicator,
+                publishedAt: item.publishedAt,
+              })),
+              auditLogs: auditLogs.slice(0, 15).map((log) => ({
+                fileName: log.fileName,
+                verdict: log.verdict,
+                risk: log.risk,
+                score: log.score,
+                type: log.type,
+                timestamp: log.timestamp,
+              })),
+              availableTools: NAV_TABS_META.map((t) => ({
+                id: t.id,
+                label: t.label,
+                groupLabel: t.groupLabel,
+                lockedForFreeUsers: accessState.isToolInLockedList(t.id),
+              })),
+            }}
+            onNotify={notifyStatus}
+            onNavigateToAuth={() => setActiveTab('profile')}
             onRecordAudit={(p) =>
               void saveAuditLog({
                 id: p.id,

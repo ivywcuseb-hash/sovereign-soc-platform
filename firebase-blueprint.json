@@ -198,6 +198,32 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [ "lockedTools", "updatedAt" ]
+    },
+    "PlatformSiteControls": {
+      "title": "PlatformSiteControls",
+      "description": "Owner/Admin-managed platform announcement banner and per-tool or per-section temporary maintenance mode controls",
+      "type": "object",
+      "properties": {
+        "announcementEnabled": { "type": "boolean" },
+        "announcementText": { "type": "string", "maxLength": 500 },
+        "announcementType": { "type": "string", "enum": ["info", "warning", "critical", "success"] },
+        "announcementUpdatedAt": { "type": "string", "format": "date-time" },
+        "maintenanceTools": { "type": "array" },
+        "maintenanceGroups": { "type": "array" },
+        "maintenanceMessage": { "type": "string", "maxLength": 500 },
+        "maintenanceUpdatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "announcementEnabled",
+        "announcementText",
+        "announcementType",
+        "maintenanceTools",
+        "maintenanceGroups",
+        "maintenanceMessage",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -212,6 +238,10 @@
     "/platform_config/{configId}": {
       "schema": "PlatformToolConfig",
       "description": "Owner-managed platform settings such as paid/free tool toggles"
+    },
+    "/platform_config/site_controls": {
+      "schema": "PlatformSiteControls",
+      "description": "Owner/Admin-managed announcement banner and tool/section temporary maintenance controls"
     },
     "/admins/{adminId}": {
       "schema": "AdminRegistry",

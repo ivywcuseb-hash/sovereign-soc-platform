@@ -15,13 +15,17 @@ import {
   SlidersHorizontal,
   RotateCcw,
   ExternalLink,
+  Megaphone,
+  Wrench,
+  AlertTriangle,
+  AlertOctagon,
+  Info,
+  Power,
+  Send,
 } from 'lucide-react';
 import {
   collection,
-  doc,
   onSnapshot,
-  setDoc,
-  deleteDoc,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
@@ -29,6 +33,7 @@ import {
   NAV_GROUP_ORDER,
   renderTabIcon,
   type AppTabId,
+  type NavGroupId,
 } from './LayoutCustomizer';
 import {
   DEFAULT_LOCKED_TOOLS,
@@ -45,6 +50,17 @@ import {
   type SubscriptionPlanId,
   type UserSubscriptionRecord,
 } from '../utils/subscriptionAccess';
+import {
+  ANNOUNCEMENT_TYPE_META,
+  DEFAULT_PLATFORM_SITE_CONTROLS,
+  GROUP_LABELS_BY_ID,
+  MAX_ANNOUNCEMENT_LENGTH,
+  MAX_MAINTENANCE_MESSAGE_LENGTH,
+  savePlatformSiteControlsToFirestore,
+  type AnnouncementType,
+  type PlatformSiteControls,
+  type TabMaintenanceStatus,
+} from '../utils/platformControls';
 
 interface SubscriptionPaywallModalProps {
   isOpen: boolean;
@@ -246,6 +262,76 @@ export const SubscriptionInlineGate: React.FC<SubscriptionInlineGateProps> = ({
   );
 };
 
+interface MaintenanceModeNoticeProps {
+  status: TabMaintenanceStatus;
+  isAdminPreview?: boolean;
+  onExitAdminPreview?: () => void;
+  onBackToSafeTab: () => void;
+  backButtonLabel?: string;
+}
+
+export const MaintenanceModeNotice: React.FC<MaintenanceModeNoticeProps> = ({
+  status,
+  isAdminPreview,
+  onExitAdminPreview,
+  onBackToSafeTab,
+  backButtonLabel = 'العودة للوحة الرئيسية',
+}) => {
+  return (
+    <div className="bg-gray-900 border border-amber-500/40 rounded-2xl p-8 text-center space-y-5 shadow-2xl">
+      <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 mx-auto">
+        <Wrench className="w-7 h-7" />
+      </div>
+      <div className="space-y-2">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/15 border border-amber-500/35 text-amber-300 text-[11px] font-bold">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          <span>تحت الصيانة المؤقتة</span>
+        </div>
+        <h3 className="text-lg font-bold text-white">
+          {status.scope === 'group'
+            ? `قسم "${status.groupLabel}" في وضع الصيانة المؤقت`
+            : `أداة "${status.toolLabel}" في وضع الصيانة المؤقت`}
+        </h3>
+        {status.scope === 'group' && (
+          <p className="text-xs text-gray-400">
+            الوحدة المطلوبة: <span className="text-gray-200 font-bold">{status.toolLabel}</span>
+          </p>
+        )}
+      </div>
+
+      <div className="max-w-xl mx-auto p-4 rounded-xl bg-gray-950 border border-gray-800 text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">
+        {status.message}
+      </div>
+
+      {status.updatedAt && (
+        <div className="text-[11px] font-mono text-gray-500" dir="ltr">
+          Last Updated: {new Date(status.updatedAt).toLocaleString('ar-SA')}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+        {isAdminPreview && onExitAdminPreview && (
+          <button
+            type="button"
+            onClick={onExitAdminPreview}
+            className="px-5 py-2.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition cursor-pointer inline-flex items-center gap-1.5"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>إنهاء المعاينة ومتابعة عرض الأداة (صلاحية الأدمن)</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onBackToSafeTab}
+          className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-100 font-bold text-xs rounded-xl transition cursor-pointer"
+        >
+          {backButtonLabel}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 interface AdminUserSummary {
   uid: string;
   email: string;
@@ -257,8 +343,12 @@ interface AdminUserSummary {
 interface AdminSubscriptionManagerProps {
   currentUserUid: string;
   accessState: SovereignAccessState;
+  siteControls?: PlatformSiteControls;
+  siteControlsLoaded?: boolean;
+  requestedAdminTab?: 'tools' | 'announcement' | 'maintenance' | 'users' | null;
   onPaidTabsSaved?: (nextLockedTools: AppTabId[]) => void;
   onLockedToolsSaved?: (nextLockedTools: AppTabId[]) => void;
+  onSiteControlsSaved?: (nextControls: PlatformSiteControls) => void;
   onOpenTool?: (tabId: AppTabId) => void;
   onNotify: (msg: string, type?: 'success' | 'error' | 'warning') => void;
 }
@@ -266,12 +356,18 @@ interface AdminSubscriptionManagerProps {
 export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> = ({
   currentUserUid,
   accessState,
+  siteControls = DEFAULT_PLATFORM_SITE_CONTROLS,
+  siteControlsLoaded = false,
+  requestedAdminTab = null,
   onPaidTabsSaved,
   onLockedToolsSaved,
+  onSiteControlsSaved,
   onOpenTool,
   onNotify,
 }) => {
-  const [ownerConsoleTab, setOwnerConsoleTab] = useState<'tools' | 'users'>('tools');
+  const [ownerConsoleTab, setOwnerConsoleTab] = useState<
+    'tools' | 'announcement' | 'maintenance' | 'users'
+  >('tools');
   const [usersList, setUsersList] = useState<AdminUserSummary[]>([]);
   const [subsMap, setSubsMap] = useState<Record<string, UserSubscriptionRecord>>(() =>
     readAllLocalUserSubscriptionsBackup()
@@ -295,6 +391,55 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
     savedAt: string;
     syncedToCloud: boolean;
   } | null>(null);
+
+  // Firestore-backed Announcement Banner & Maintenance Mode States
+  const [draftAnnouncementEnabled, setDraftAnnouncementEnabled] = useState<boolean>(
+    siteControls.announcementEnabled
+  );
+  const [draftAnnouncementText, setDraftAnnouncementText] = useState<string>(
+    siteControls.announcementText
+  );
+  const [draftAnnouncementType, setDraftAnnouncementType] = useState<AnnouncementType>(
+    siteControls.announcementType
+  );
+  const [savingAnnouncement, setSavingAnnouncement] = useState<boolean>(false);
+  const [announcementFeedback, setAnnouncementFeedback] = useState<{
+    ok: boolean;
+    message: string;
+    savedAt: string;
+  } | null>(null);
+
+  const [draftMaintenanceTools, setDraftMaintenanceTools] = useState<AppTabId[]>(
+    siteControls.maintenanceTools
+  );
+  const [draftMaintenanceGroups, setDraftMaintenanceGroups] = useState<NavGroupId[]>(
+    siteControls.maintenanceGroups
+  );
+  const [draftMaintenanceMessage, setDraftMaintenanceMessage] = useState<string>(
+    siteControls.maintenanceMessage
+  );
+  const [maintenanceToolSearch, setMaintenanceToolSearch] = useState<string>('');
+  const [savingMaintenanceKey, setSavingMaintenanceKey] = useState<string | null>(null);
+  const [maintenanceFeedback, setMaintenanceFeedback] = useState<{
+    ok: boolean;
+    message: string;
+    savedAt: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (requestedAdminTab) {
+      setOwnerConsoleTab(requestedAdminTab);
+    }
+  }, [requestedAdminTab]);
+
+  useEffect(() => {
+    setDraftAnnouncementEnabled(siteControls.announcementEnabled);
+    setDraftAnnouncementText(siteControls.announcementText);
+    setDraftAnnouncementType(siteControls.announcementType);
+    setDraftMaintenanceTools(siteControls.maintenanceTools);
+    setDraftMaintenanceGroups(siteControls.maintenanceGroups);
+    setDraftMaintenanceMessage(siteControls.maintenanceMessage);
+  }, [siteControls]);
 
   useEffect(() => {
     if (!accessState.isAdminOrOwner) return;
@@ -523,9 +668,147 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
     );
   });
 
+  const handleSaveAnnouncement = async (forceEnabled?: boolean) => {
+    const nextEnabled =
+      typeof forceEnabled === 'boolean' ? forceEnabled : draftAnnouncementEnabled;
+    const trimmedText = draftAnnouncementText.trim();
+
+    if (nextEnabled && !trimmedText) {
+      const msg = 'يرجى كتابة نص التنبيه قبل تفعيل الشريط في المنصة.';
+      setAnnouncementFeedback({ ok: false, message: msg, savedAt: new Date().toISOString() });
+      onNotify(msg, 'warning');
+      return;
+    }
+
+    setSavingAnnouncement(true);
+    setAnnouncementFeedback(null);
+    const nowIso = new Date().toISOString();
+    const nextPayload: PlatformSiteControls = {
+      ...siteControls,
+      announcementEnabled: nextEnabled,
+      announcementText: trimmedText.slice(0, MAX_ANNOUNCEMENT_LENGTH),
+      announcementType: draftAnnouncementType,
+      announcementUpdatedAt: nowIso,
+      maintenanceTools: draftMaintenanceTools,
+      maintenanceGroups: draftMaintenanceGroups,
+      maintenanceMessage: draftMaintenanceMessage.trim().slice(0, MAX_MAINTENANCE_MESSAGE_LENGTH),
+      updatedBy: currentUserUid,
+      updatedAt: nowIso,
+    };
+
+    try {
+      const res = await savePlatformSiteControlsToFirestore(nextPayload, currentUserUid);
+      if (res.syncedToCloud) {
+        onSiteControlsSaved?.(res.controls);
+        const msg = res.controls.announcementEnabled
+          ? 'تم نشر شريط التنبيهات وتفعيله في Firestore بنجاح.'
+          : 'تم تعطيل شريط التنبيهات وحفظ التغيير في Firestore.';
+        setAnnouncementFeedback({ ok: true, message: msg, savedAt: res.controls.updatedAt });
+        onNotify(msg, 'success');
+      } else {
+        const msg = res.permissionDenied
+          ? 'تم رفض التعديل من قواعد أمان Firestore (الصلاحية محصورة للمالك والأدمن المعتمد فقط).'
+          : `فشل حفظ التنبيه في Firestore: ${res.errorMessage || 'خطأ في الاتصال'}`;
+        setAnnouncementFeedback({ ok: false, message: msg, savedAt: nowIso });
+        onNotify(msg, 'error');
+      }
+    } finally {
+      setSavingAnnouncement(false);
+    }
+  };
+
+  const persistMaintenanceControls = async (
+    nextTools: AppTabId[],
+    nextGroups: NavGroupId[],
+    nextMessage: string,
+    actionKey: string,
+    successMsg: string
+  ) => {
+    setSavingMaintenanceKey(actionKey);
+    setMaintenanceFeedback(null);
+    const nowIso = new Date().toISOString();
+    const nextPayload: PlatformSiteControls = {
+      ...siteControls,
+      announcementEnabled: draftAnnouncementEnabled,
+      announcementText: draftAnnouncementText.trim().slice(0, MAX_ANNOUNCEMENT_LENGTH),
+      announcementType: draftAnnouncementType,
+      maintenanceTools: nextTools.filter((id) => id !== 'profile'),
+      maintenanceGroups: nextGroups,
+      maintenanceMessage: nextMessage.trim().slice(0, MAX_MAINTENANCE_MESSAGE_LENGTH),
+      maintenanceUpdatedAt: nowIso,
+      updatedBy: currentUserUid,
+      updatedAt: nowIso,
+    };
+
+    try {
+      const res = await savePlatformSiteControlsToFirestore(nextPayload, currentUserUid);
+      if (res.syncedToCloud) {
+        setDraftMaintenanceTools(res.controls.maintenanceTools);
+        setDraftMaintenanceGroups(res.controls.maintenanceGroups);
+        setDraftMaintenanceMessage(res.controls.maintenanceMessage);
+        onSiteControlsSaved?.(res.controls);
+        setMaintenanceFeedback({
+          ok: true,
+          message: successMsg,
+          savedAt: res.controls.updatedAt,
+        });
+        onNotify(`${successMsg} (تم التحديث في Firestore)`, 'success');
+      } else {
+        setDraftMaintenanceTools(siteControls.maintenanceTools);
+        setDraftMaintenanceGroups(siteControls.maintenanceGroups);
+        const msg = res.permissionDenied
+          ? 'تم رفض تعديل وضع الصيانة من قواعد Firestore (الصلاحية محصورة للمالك والأدمن المعتمد فقط).'
+          : `فشل حفظ وضع الصيانة في Firestore: ${res.errorMessage || 'خطأ غير متوقع'}`;
+        setMaintenanceFeedback({ ok: false, message: msg, savedAt: nowIso });
+        onNotify(msg, 'error');
+      }
+    } finally {
+      setSavingMaintenanceKey(null);
+    }
+  };
+
+  const toggleGroupMaintenance = (groupId: NavGroupId) => {
+    const exists = draftMaintenanceGroups.includes(groupId);
+    const nextGroups = exists
+      ? draftMaintenanceGroups.filter((g) => g !== groupId)
+      : [...draftMaintenanceGroups, groupId];
+    const groupLabel = GROUP_LABELS_BY_ID[groupId] || groupId;
+    const msg = exists
+      ? `تم إخراج قسم "${groupLabel}" من وضع الصيانة المؤقت.`
+      : `تم وضع قسم "${groupLabel}" تحت الصيانة المؤقتة.`;
+    void persistMaintenanceControls(
+      draftMaintenanceTools,
+      nextGroups,
+      draftMaintenanceMessage,
+      `group:${groupId}`,
+      msg
+    );
+  };
+
+  const toggleToolMaintenance = (tabId: AppTabId, label: string) => {
+    if (tabId === 'profile') return;
+    const exists = draftMaintenanceTools.includes(tabId);
+    const nextTools = exists
+      ? draftMaintenanceTools.filter((id) => id !== tabId)
+      : [...draftMaintenanceTools, tabId];
+    const msg = exists
+      ? `تم إخراج أداة "${label}" من وضع الصيانة.`
+      : `تم وضع أداة "${label}" تحت الصيانة المؤقتة.`;
+    void persistMaintenanceControls(
+      nextTools,
+      draftMaintenanceGroups,
+      draftMaintenanceMessage,
+      `tool:${tabId}`,
+      msg
+    );
+  };
+
   const normalizedToolQuery = toolSearchTerm.trim().toLowerCase();
+  const normalizedMaintQuery = maintenanceToolSearch.trim().toLowerCase();
   const paidToolsCount = NAV_TABS_META.filter((t) => accessState.isToolInLockedList(t.id)).length;
   const freeToolsCount = NAV_TABS_META.length - paidToolsCount;
+  const activeMaintCount =
+    siteControls.maintenanceTools.length + siteControls.maintenanceGroups.length;
 
   return (
     <div id="owner-management-console" className="bg-gray-950/70 border border-[#D4AF37]/40 rounded-2xl p-6 space-y-5">
@@ -537,16 +820,16 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
           <div>
             <h3 className="text-sm font-bold text-white">لوحة إدارة المالك والمطور</h3>
             <p className="text-[11px] text-gray-400">
-              تحكم مباشر في قفل أو فتح أي أداة لبقية المستخدمين وإدارة اشتراكات Firestore. حسابك معفى بالكامل وتفتح لك كل الأدوات فوراً.
+              تحكم إداري مباشر مخزّن في Firestore: قفل الأدوات، شريط التنبيهات العام، وضع الصيانة المؤقت للأقسام والأدوات، وإدارة الاشتراكات.
             </p>
           </div>
         </div>
         <span className="px-3 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold shrink-0 self-start sm:self-center">
-          وصول المالك مفتوح بالكامل
+          صلاحية المالك / الأدمن نشطة
         </span>
       </div>
 
-      {/* Sub-navigation between Tool Access Toggle Manager and User Subscriptions */}
+      {/* Sub-navigation between Admin Control Tabs */}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -559,6 +842,52 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
         >
           <SlidersHorizontal className="w-3.5 h-3.5" />
           <span>التحكم بقفل وفتح الأدوات ({NAV_TABS_META.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOwnerConsoleTab('announcement')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
+            ownerConsoleTab === 'announcement'
+              ? 'bg-[#D4AF37] text-gray-950 border-[#D4AF37]'
+              : 'bg-gray-900 text-gray-300 border-gray-800 hover:border-gray-700'
+          }`}
+        >
+          <Megaphone className="w-3.5 h-3.5" />
+          <span>شريط التنبيهات والإعلانات</span>
+          {siteControls.announcementEnabled && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                ownerConsoleTab === 'announcement'
+                  ? 'bg-gray-950/20 text-gray-950'
+                  : 'bg-emerald-500/20 text-emerald-300'
+              }`}
+            >
+              مفعّل
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOwnerConsoleTab('maintenance')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-2 cursor-pointer ${
+            ownerConsoleTab === 'maintenance'
+              ? 'bg-[#D4AF37] text-gray-950 border-[#D4AF37]'
+              : 'bg-gray-900 text-gray-300 border-gray-800 hover:border-gray-700'
+          }`}
+        >
+          <Wrench className="w-3.5 h-3.5" />
+          <span>وضع الصيانة المؤقت</span>
+          {activeMaintCount > 0 && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums ${
+                ownerConsoleTab === 'maintenance'
+                  ? 'bg-gray-950/20 text-gray-950'
+                  : 'bg-amber-500/20 text-amber-300'
+              }`}
+            >
+              {activeMaintCount}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -753,6 +1082,456 @@ export const AdminSubscriptionManager: React.FC<AdminSubscriptionManagerProps> =
                 </div>
               );
             })}
+          </div>
+        </div>
+      ) : ownerConsoleTab === 'announcement' ? (
+        <div className="space-y-4">
+          <div className="bg-gray-900 p-5 rounded-xl border border-gray-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-800">
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                  <Megaphone className="w-4 h-4 text-[#D4AF37]" />
+                  <span>شريط تنبيهات وإعلانات المنصة (Firestore: platform_config/site_controls)</span>
+                </h4>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  يظهر فوراً أعلى واجهة المنصة لجميع المستخدمين عند التفعيل، ويُدار حصراً من حسابات المالك والأدمن عبر قواعد أمان Firestore.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDraftAnnouncementEnabled((v) => !v)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition inline-flex items-center gap-2 cursor-pointer shrink-0 ${
+                  draftAnnouncementEnabled
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : 'bg-gray-950 border-gray-700 text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                <Power className="w-3.5 h-3.5" />
+                <span>الحالة: {draftAnnouncementEnabled ? 'مفعّل' : 'معطّل'}</span>
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-gray-300">نوع التنبيه / الإعلان</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {(['info', 'warning', 'critical', 'success'] as AnnouncementType[]).map((typeKey) => {
+                  const meta = ANNOUNCEMENT_TYPE_META[typeKey];
+                  const active = draftAnnouncementType === typeKey;
+                  const icon =
+                    typeKey === 'critical' ? (
+                      <AlertOctagon className="w-4 h-4 text-red-400" />
+                    ) : typeKey === 'warning' ? (
+                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                    ) : typeKey === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <Info className="w-4 h-4 text-sky-400" />
+                    );
+                  return (
+                    <button
+                      key={typeKey}
+                      type="button"
+                      onClick={() => setDraftAnnouncementType(typeKey)}
+                      className={`p-3 rounded-xl border text-right transition cursor-pointer space-y-1 ${
+                        active
+                          ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white'
+                          : 'bg-gray-950 border-gray-800 text-gray-300 hover:border-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold">{meta.labelAr}</span>
+                        {icon}
+                      </div>
+                      <p className="text-[10px] text-gray-400">{meta.descriptionAr}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-bold text-gray-300">نص التنبيه أو الإعلان</label>
+                <span className="text-[11px] font-mono text-gray-400 tabular-nums" dir="ltr">
+                  {draftAnnouncementText.length} / {MAX_ANNOUNCEMENT_LENGTH}
+                </span>
+              </div>
+              <textarea
+                rows={3}
+                maxLength={MAX_ANNOUNCEMENT_LENGTH}
+                value={draftAnnouncementText}
+                onChange={(e) => setDraftAnnouncementText(e.target.value)}
+                placeholder="اكتب نص التنبيه أو الإعلان الرسمي الذي سيظهر في شريط المنصة..."
+                className="w-full p-3 bg-gray-950 border border-gray-800 rounded-xl text-xs text-white focus:border-[#D4AF37] outline-none resize-y"
+              />
+            </div>
+
+            {/* Live Preview of Banner */}
+            {draftAnnouncementText.trim() && (
+              <div className="space-y-1.5">
+                <span className="text-[11px] text-gray-400 font-bold">معاينة مباشرة لشكل الشريط عند التفعيل:</span>
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs ${
+                    draftAnnouncementType === 'critical'
+                      ? 'bg-red-500/15 border-red-500/45 text-red-200'
+                      : draftAnnouncementType === 'warning'
+                      ? 'bg-amber-500/15 border-amber-500/45 text-amber-200'
+                      : draftAnnouncementType === 'success'
+                      ? 'bg-emerald-500/15 border-emerald-500/45 text-emerald-200'
+                      : 'bg-sky-500/15 border-sky-500/45 text-sky-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="px-2 py-0.5 rounded-md bg-black/30 font-bold text-[10px] shrink-0">
+                      {ANNOUNCEMENT_TYPE_META[draftAnnouncementType].badgeAr}
+                    </span>
+                    <span className="font-medium leading-relaxed break-words">
+                      {draftAnnouncementText.trim()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={savingAnnouncement}
+                  onClick={() => void handleSaveAnnouncement()}
+                  className="px-4 py-2.5 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-2"
+                >
+                  {savingAnnouncement ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>حفظ الإعدادات في Firestore</span>
+                </button>
+                {siteControls.announcementEnabled && (
+                  <button
+                    type="button"
+                    disabled={savingAnnouncement}
+                    onClick={() => void handleSaveAnnouncement(false)}
+                    className="px-4 py-2.5 bg-red-500/15 hover:bg-red-500/25 border border-red-500/35 text-red-300 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>تعطيل الشريط الآن</span>
+                  </button>
+                )}
+              </div>
+              <span className="text-[11px] font-mono text-gray-500" dir="ltr">
+                {siteControlsLoaded
+                  ? siteControls.announcementUpdatedAt
+                    ? `Firestore Sync: ${new Date(siteControls.announcementUpdatedAt).toLocaleTimeString('ar-SA')}`
+                    : 'Firestore Ready'
+                  : 'Syncing Firestore...'}
+              </span>
+            </div>
+          </div>
+
+          {announcementFeedback && (
+            <div
+              className={`px-4 py-3 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                announcementFeedback.ok
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                  : 'bg-red-500/10 border-red-500/35 text-red-300'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold">
+                {announcementFeedback.ok ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertOctagon className="w-4 h-4 shrink-0" />
+                )}
+                <span>{announcementFeedback.message}</span>
+              </div>
+              <span className="text-[10px] font-mono opacity-80 shrink-0" dir="ltr">
+                {new Date(announcementFeedback.savedAt).toLocaleTimeString('ar-SA')}
+              </span>
+            </div>
+          )}
+        </div>
+      ) : ownerConsoleTab === 'maintenance' ? (
+        <div className="space-y-4">
+          <div className="bg-gray-900 p-5 rounded-xl border border-gray-800 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-gray-800">
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-amber-400" />
+                  <span>وضع الصيانة المؤقت للأدوات أو الأقسام (Firestore)</span>
+                </h4>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  يمكنك وضع قسم كامل أو أداة محددة في حالة "تحت الصيانة" مع رسالة توضيحية تظهر للمستخدمين فوراً عند فتح الأداة أو القسم.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-bold tabular-nums">
+                  أقسام تحت الصيانة: {siteControls.maintenanceGroups.length} • أدوات: {siteControls.maintenanceTools.length}
+                </span>
+                {activeMaintCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={Boolean(savingMaintenanceKey)}
+                    onClick={() =>
+                      void persistMaintenanceControls(
+                        [],
+                        [],
+                        draftMaintenanceMessage,
+                        '__clear_all_maint__',
+                        'تم رفع وضع الصيانة عن جميع الأقسام والأدوات.'
+                      )
+                    }
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    <span>إيقاف الصيانة عن الكل</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-bold text-gray-300">الرسالة التوضيحية للمستخدمين أثناء الصيانة</label>
+                <span className="text-[11px] font-mono text-gray-400 tabular-nums" dir="ltr">
+                  {draftMaintenanceMessage.length} / {MAX_MAINTENANCE_MESSAGE_LENGTH}
+                </span>
+              </div>
+              <textarea
+                rows={2}
+                maxLength={MAX_MAINTENANCE_MESSAGE_LENGTH}
+                value={draftMaintenanceMessage}
+                onChange={(e) => setDraftMaintenanceMessage(e.target.value)}
+                placeholder="مثال: هذه الوحدة قيد التحديث الأمني المجدول وستعود للعمل خلال دقائق..."
+                className="w-full p-3 bg-gray-950 border border-gray-800 rounded-xl text-xs text-white focus:border-[#D4AF37] outline-none resize-y"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={Boolean(savingMaintenanceKey)}
+                  onClick={() =>
+                    void persistMaintenanceControls(
+                      draftMaintenanceTools,
+                      draftMaintenanceGroups,
+                      draftMaintenanceMessage,
+                      '__save_msg__',
+                      'تم حفظ رسالة الصيانة التوضيحية في Firestore بنجاح.'
+                    )
+                  }
+                  className="px-4 py-2 bg-[#D4AF37] hover:bg-[#c29f30] text-gray-950 font-bold text-xs rounded-xl transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {savingMaintenanceKey === '__save_msg__' ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  <span>حفظ رسالة الصيانة في Firestore</span>
+                </button>
+                {siteControls.maintenanceUpdatedAt && (
+                  <span className="text-[10px] font-mono text-gray-500" dir="ltr">
+                    Last Sync: {new Date(siteControls.maintenanceUpdatedAt).toLocaleTimeString('ar-SA')}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {maintenanceFeedback && (
+            <div
+              className={`px-4 py-3 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                maintenanceFeedback.ok
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                  : 'bg-red-500/10 border-red-500/35 text-red-300'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold">
+                {maintenanceFeedback.ok ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertOctagon className="w-4 h-4 shrink-0" />
+                )}
+                <span>{maintenanceFeedback.message}</span>
+              </div>
+              <span className="text-[10px] font-mono opacity-80 shrink-0" dir="ltr">
+                {new Date(maintenanceFeedback.savedAt).toLocaleTimeString('ar-SA')}
+              </span>
+            </div>
+          )}
+
+          {/* Section-level maintenance toggles */}
+          <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h5 className="text-xs font-bold text-white">1. وضع الصيانة على مستوى الأقسام الكاملة</h5>
+              <span className="text-[10px] text-gray-400">يشمل جميع أدوات القسم فوراً (باستثناء صفحة الحساب والإدارة)</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {NAV_GROUP_ORDER.map((groupId) => {
+                const isGroupMaint = draftMaintenanceGroups.includes(groupId);
+                const groupCount = NAV_TABS_META.filter((t) => t.group === groupId).length;
+                const isBusy = savingMaintenanceKey === `group:${groupId}` || savingMaintenanceKey === '__clear_all_maint__';
+                return (
+                  <div
+                    key={groupId}
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 transition ${
+                      isGroupMaint
+                        ? 'bg-amber-500/10 border-amber-500/40'
+                        : 'bg-gray-950 border-gray-800'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-white truncate">
+                        {GROUP_LABELS_BY_ID[groupId]}
+                      </div>
+                      <div className="text-[10px] text-gray-400">
+                        {groupCount} أداة {groupId === 'system' ? '• الحساب مستثنى' : ''}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={Boolean(savingMaintenanceKey)}
+                      onClick={() => toggleGroupMaintenance(groupId)}
+                      className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer shrink-0 disabled:opacity-50 ${
+                        isGroupMaint
+                          ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-300'
+                          : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/40 text-amber-300'
+                      }`}
+                    >
+                      {isBusy ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Wrench className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isGroupMaint ? 'إيقاف الصيانة' : 'تحت الصيانة'}</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Tool-level maintenance toggles */}
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={maintenanceToolSearch}
+                onChange={(e) => setMaintenanceToolSearch(e.target.value)}
+                placeholder="تصفية الأدوات لوضع أداة محددة تحت الصيانة..."
+                className="w-full pr-9 pl-3 py-2 bg-gray-900 border border-gray-800 rounded-xl text-xs text-white focus:border-[#D4AF37] outline-none"
+              />
+            </div>
+
+            <div className="space-y-4">
+              {NAV_GROUP_ORDER.map((groupId) => {
+                const groupTools = NAV_TABS_META.filter((t) => {
+                  if (t.group !== groupId) return false;
+                  if (!normalizedMaintQuery) return true;
+                  return (
+                    t.label.toLowerCase().includes(normalizedMaintQuery) ||
+                    t.shortLabel.toLowerCase().includes(normalizedMaintQuery) ||
+                    t.id.toLowerCase().includes(normalizedMaintQuery)
+                  );
+                });
+                if (groupTools.length === 0) return null;
+                const isGroupMaint = draftMaintenanceGroups.includes(groupId);
+
+                return (
+                  <div key={`maint-${groupId}`} className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-gray-900 border-b border-gray-800 flex items-center justify-between text-xs font-bold text-gray-200">
+                      <span className="flex items-center gap-2">
+                        <span>{groupTools[0].groupLabel}</span>
+                        {isGroupMaint && (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px]">
+                            القسم بالكامل تحت الصيانة
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[11px] text-gray-500 tabular-nums">{groupTools.length} أداة</span>
+                    </div>
+                    <div className="divide-y divide-gray-800/80">
+                      {groupTools.map((tool) => {
+                        const isProfile = tool.id === 'profile';
+                        const isToolMaint = !isProfile && draftMaintenanceTools.includes(tool.id);
+                        const effectiveMaint = !isProfile && (isToolMaint || isGroupMaint);
+                        const isBusy =
+                          savingMaintenanceKey === `tool:${tool.id}` ||
+                          savingMaintenanceKey === '__clear_all_maint__';
+
+                        return (
+                          <div
+                            key={`maint-tool-${tool.id}`}
+                            className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-900/50 transition"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${
+                                  effectiveMaint
+                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                }`}
+                              >
+                                {renderTabIcon(tool.id, 'w-4 h-4')}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-white truncate">{tool.label}</div>
+                                <div className="text-[10px] font-mono text-gray-500" dir="ltr">{tool.id}</div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
+                              {isProfile ? (
+                                <span className="px-2.5 py-1 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 text-[10px] font-bold">
+                                  مستثنى دائماً لإدارة المنصة والحساب
+                                </span>
+                              ) : (
+                                <>
+                                  <span
+                                    className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 ${
+                                      effectiveMaint
+                                        ? 'bg-amber-500/15 border-amber-500/35 text-amber-300'
+                                        : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                    }`}
+                                  >
+                                    {effectiveMaint ? <Wrench className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
+                                    <span>
+                                      {isToolMaint
+                                        ? 'الأداة تحت الصيانة'
+                                        : isGroupMaint
+                                        ? 'مغطاة بصيانة القسم'
+                                        : 'تعمل بشكل طبيعي'}
+                                    </span>
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(savingMaintenanceKey)}
+                                    onClick={() => toggleToolMaintenance(tool.id, tool.label)}
+                                    className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                                      isToolMaint
+                                        ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/40 text-emerald-300'
+                                        : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/40 text-amber-300'
+                                    }`}
+                                  >
+                                    {isBusy ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Wrench className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{isToolMaint ? 'إنهاء صيانة الأداة' : 'تعيين تحت الصيانة'}</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       ) : (

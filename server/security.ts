@@ -784,18 +784,28 @@ export function createAuthMiddleware(adminAuth: Auth, adminDb: Firestore) {
     if (!token || token === 'mock-token' || token.split('.').length !== 3) {
       throw new Error('MALFORMED_TOKEN');
     }
+
+    // 1. Always enforce cryptographic RSA signature, issuer, project audience, and expiry verification
+    const decoded = await adminAuth.verifyIdToken(token, false);
+
+    // 2. Best-effort revocation check when Admin ADC / service-account credentials are available
     try {
-      // Check revocation via Firebase Admin Auth
       return await adminAuth.verifyIdToken(token, true);
     } catch (err: any) {
-      // Only fall back to non-revocation network-cached verification if transient Google metadata network error;
-      // cryptographic signature, expiry, aud/iss mismatches, or explicitly revoked tokens ALWAYS fail!
-      const msg = String(err?.code || err?.message || '');
-      if (msg.includes('id-token-revoked') || msg.includes('auth/id-token-revoked')) {
+      const codeAndMsg = `${String(err?.code || '')} ${String(err?.message || '')}`;
+      if (
+        /id-token-revoked|id-token-expired|user-disabled|user-not-found|argument-error|invalid-id-token/i.test(
+          codeAndMsg
+        )
+      ) {
         throw err;
       }
-      if (msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND') || msg.includes('ETIMEDOUT')) {
-        return await adminAuth.verifyIdToken(token, false);
+      if (
+        /invalid-credential|default credentials|insufficient-permission|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ENETUNREACH|EAI_AGAIN|fetch failed|metadata|internal-error/i.test(
+          codeAndMsg
+        )
+      ) {
+        return decoded;
       }
       throw err;
     }
@@ -869,7 +879,10 @@ export function createAuthMiddleware(adminAuth: Auth, adminDb: Firestore) {
         clientIp: getClientIp(req),
         detail: `Rejected invalid Bearer token on endpoint (${String(error?.code || 'invalid_token').slice(0, 48)})`,
       });
-      return res.status(401).json({ error: 'Unauthorized: Invalid session token.' });
+      return res.status(401).json({
+        error: 'Unauthorized: Invalid or expired session token.',
+        code: 'INVALID_OR_EXPIRED_TOKEN',
+      });
     }
   };
 

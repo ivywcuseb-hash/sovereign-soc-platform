@@ -73,6 +73,11 @@ const TAB_VOICE_ROUTES: Array<{ tab: AppTabId; labelAr: string; keywords: string
     keywords: ['المحادثه الصوتيه', 'الصوت الحي', 'المساعد الصوتي', 'محادثه صوتيه', 'voice chat'],
   },
   {
+    tab: 'site_assistant',
+    labelAr: 'مساعد ورسائل المنصة الذكي',
+    keywords: ['مساعد المنصه', 'رسائل المنصه', 'صندوق الرسائل', 'مساعد الموقع', 'site assistant', 'inbox bot'],
+  },
+  {
     tab: 'dashboard',
     labelAr: 'لوحة التحكم الرئيسية',
     keywords: ['لوحه التحكم', 'الرئيسيه', 'الصفحه الرئيسيه', 'dashboard', 'home'],

@@ -21,6 +21,7 @@ import malwareHashHandler from './api/malware-hash.ts';
 import urlTraceHandler from './api/url-trace.ts';
 import socKevEpssHandler from './api/soc-kev-epss.ts';
 import liveVoiceTurnHandler from './api/live-voice-turn.ts';
+import siteAssistantHandler from './api/site-assistant.ts';
 import {
   type AuthedRequest,
   securityMonitor,
@@ -1510,6 +1511,16 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
   app.get('/api/soc-kev-epss', probeRateLimit, optionalVerifiedAuth, (req, res) => socKevEpssHandler(req, res));
   app.post('/api/soc-kev-epss', probeRateLimit, optionalVerifiedAuth, (req, res) => socKevEpssHandler(req, res));
   app.post('/api/live-voice-turn', aiRateLimit, optionalVerifiedAuth, (req, res) => liveVoiceTurnHandler(req, res));
+  app.post('/api/site-assistant', aiRateLimit, optionalVerifiedAuth, (req, res) => {
+    void Promise.resolve(siteAssistantHandler(req, res)).catch(() => {
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: 'حدث خطأ داخلي في الخادم أثناء معالجة طلب المساعد الذكي.',
+          code: 'INTERNAL_SERVER_ERROR',
+        });
+      }
+    });
+  });
 
   // Search API
   app.post('/api/search', aiRateLimit, optionalVerifiedAuth, async (req, res) => {
@@ -1535,6 +1546,16 @@ ${wrapUntrustedBlock('LIVE_FEEDS_ITEMS', JSON.stringify(items.slice(0, 18), null
     } catch (error: any) {
       res.status(500).json({ error: sanitizeCoreError(error, 'تعذر إتمام الاستعلام الجنائي.') });
     }
+  });
+
+  // Strict API boundary: never allow any unmatched /api/* route or method to fall through to Vite or SPA index.html
+  app.all('/api/*', (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(404).json({
+      error: `مسار API غير متاح أو الطريقة غير مدعومة (${req.method} ${req.path}).`,
+      code: 'API_NOT_FOUND',
+    });
   });
 
   const isProductionBuild = process.env.NODE_ENV === 'production' && fs.existsSync(path.join(__dirname, 'dist', 'index.html'));

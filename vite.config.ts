@@ -27,6 +27,7 @@ export default defineConfig(() => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,wasm,json}'],
           globIgnores: ['**/aistudio/**'],
+          navigateFallbackDenylist: [/^\/api\//, /^\/__\//],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024, // 6MB
           cleanupOutdatedCaches: true,
           skipWaiting: true,
@@ -63,7 +64,7 @@ export default defineConfig(() => {
           ]
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module'
         }
       })

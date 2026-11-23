@@ -42,10 +42,19 @@ export function useUpdateChecker() {
   );
   const [swScriptUrl, setSwScriptUrl] = useState<string>('/sw.js');
 
-  // Initialize PWA Service Worker Registration (/sw.js)
+  // Initialize PWA Service Worker Registration (/sw.js) in production only
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
       setSwStatus('unsupported');
+      return;
+    }
+
+    if ((import.meta as any).env?.DEV) {
+      setSwStatus('unsupported');
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => Promise.all(regs.map((r) => r.unregister().catch(() => false))))
+        .catch(() => undefined);
       return;
     }
 

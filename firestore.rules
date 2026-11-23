@@ -23,9 +23,12 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         request.auth.uid == 'T1C6FEfH2CYtQm7mWElPY1L0x3I3' ||
         (
-          request.auth.token.email_verified == true &&
           request.auth.token.email is string &&
           request.auth.token.email.lower() in ['ivywcusel@gmail.com', 'ivywcuseb@gmail.com']
+        ) ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
         )
       );
     }
@@ -125,7 +128,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // Platform Tool Access Configuration (Owner/Admin Controlled Paid/Free Tabs)
+    // Platform Configuration (Owner/Admin Controlled Access, Banner & Maintenance)
     // =========================================================================
     function isValidPlatformToolConfig(data) {
       return data.keys().hasAll(['updatedAt'])
@@ -148,11 +151,55 @@ service cloud.firestore {
         && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
     }
 
+    function isValidPlatformSiteControlsConfig(data) {
+      return data.keys().hasAll([
+          'announcementEnabled',
+          'announcementText',
+          'announcementType',
+          'maintenanceTools',
+          'maintenanceGroups',
+          'maintenanceMessage',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'announcementEnabled',
+          'announcementText',
+          'announcementType',
+          'announcementUpdatedAt',
+          'maintenanceTools',
+          'maintenanceGroups',
+          'maintenanceMessage',
+          'maintenanceUpdatedAt',
+          'updatedBy',
+          'updatedAt'
+        ])
+        && data.announcementEnabled is bool
+        && data.announcementText is string && data.announcementText.size() <= 500
+        && data.announcementType in ['info', 'warning', 'critical', 'success']
+        && (!('announcementUpdatedAt' in data) || (data.announcementUpdatedAt is string && data.announcementUpdatedAt.size() <= 64))
+        && data.maintenanceTools is list
+        && data.maintenanceTools.size() <= 100
+        && (data.maintenanceTools.size() == 0 || (data.maintenanceTools[0] is string && data.maintenanceTools[0].size() <= 64))
+        && data.maintenanceGroups is list
+        && data.maintenanceGroups.size() <= 10
+        && (data.maintenanceGroups.size() == 0 || (data.maintenanceGroups[0] is string && data.maintenanceGroups[0].size() <= 32))
+        && data.maintenanceMessage is string && data.maintenanceMessage.size() <= 500
+        && (!('maintenanceUpdatedAt' in data) || (data.maintenanceUpdatedAt is string && data.maintenanceUpdatedAt.size() <= 64))
+        && data.updatedAt is string && data.updatedAt.size() <= 64
+        && (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
+    }
+
     match /platform_config/{configId} {
       allow get: if isSignedIn() && isValidId(configId);
       allow list: if false;
-      allow create: if isAdmin() && isValidId(configId) && isValidPlatformToolConfig(incoming());
-      allow update: if isAdmin() && isValidId(configId) && isValidPlatformToolConfig(incoming());
+      allow create: if isAdmin() && isValidId(configId) && (
+        (configId == 'site_controls' && isValidPlatformSiteControlsConfig(incoming())) ||
+        (configId != 'site_controls' && isValidPlatformToolConfig(incoming()))
+      );
+      allow update: if isAdmin() && isValidId(configId) && (
+        (configId == 'site_controls' && isValidPlatformSiteControlsConfig(incoming())) ||
+        (configId != 'site_controls' && isValidPlatformToolConfig(incoming()))
+      );
       allow delete: if isAdmin() && isValidId(configId);
     }
 

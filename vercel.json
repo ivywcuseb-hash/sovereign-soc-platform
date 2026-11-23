@@ -37,9 +37,14 @@
       ]
     }
   ],
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 30
+    }
+  },
   "redirects": [
     {
-      "source": "/(.*)",
+      "source": "/((?!api(?:/|$)).*)",
       "has": [
         {
           "type": "host",
@@ -50,7 +55,7 @@
       "permanent": true
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api(?:/|$)).*)",
       "has": [
         {
           "type": "host",
@@ -71,7 +76,7 @@
       "destination": "https://herculian-metric-0vc14.firebaseapp.com/__/firebase/$1"
     },
     {
-      "source": "/((?!api/|__/|assets/|manifest\\.json|sw\\.js|workbox-.*|sql-wasm\\.wasm|.*\\.(?:png|jpg|jpeg|svg|ico|wasm|js|css|json|txt|xml)$).*)",
+      "source": "/((?!api(?:/|$)|__/|assets/|fonts/|manifest\\.json|sw\\.js|workbox-.*|sql-wasm\\.wasm|.*\\.(?:png|jpg|jpeg|svg|ico|wasm|ttf|js|css|json|txt|xml)$).*)",
       "destination": "/index.html"
     }
   ]

@@ -55,6 +55,7 @@ import {
   Network,
   ScrollText,
   FileImage,
+  Bot,
 } from 'lucide-react';
 import {
   PROCEDURAL_THEMES_CATALOG,
@@ -106,7 +107,8 @@ export type AppTabId =
   | 'live_dns_inspector'
   | 'iq_domain_auditor'
   | 'ip_isp_asn_lookup'
-  | 'phishing_url_inspector';
+  | 'phishing_url_inspector'
+  | 'site_assistant';
 
 export type LayoutStructure =
   | 'top'
@@ -217,6 +219,7 @@ export const NAV_TABS_META: NavTabMeta[] = [
 
   // 5. المساعد والنظام
   { id: 'live_voice', label: 'المساعد الذكي والصوتي', shortLabel: 'المساعد الحي', group: 'system', groupLabel: 'المساعد والنظام' },
+  { id: 'site_assistant', label: 'مساعد ورسائل المنصة الذكي (Site & Inbox Assistant Bot)', shortLabel: 'مساعد المنصة', group: 'system', groupLabel: 'المساعد والنظام' },
   { id: 'profile', label: 'الحساب والإعدادات', shortLabel: 'الحساب', group: 'system', groupLabel: 'المساعد والنظام' },
 ];
 
@@ -304,6 +307,8 @@ export function renderTabIcon(tabId: AppTabId, className = 'w-4 h-4') {
       return <Network className={className} />;
     case 'phishing_url_inspector':
       return <ShieldAlert className={className} />;
+    case 'site_assistant':
+      return <Bot className={className} />;
     case 'profile':
       return <UserIcon className={className} />;
     default:

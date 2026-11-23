@@ -186,7 +186,31 @@ async function main() {
   // 6. Server-verified Admin (User B seeded in /admins) can audit User A records, still cannot alter immutable logs
   const evSnapByAdmin = await getDoc(doc(dbB, 'evidence', 'ev-a-001'));
   assert.equal(evSnapByAdmin.exists(), true);
-  console.log('[PASS] Server-verified Admin RBAC access confirmed');
+
+  // 7. Platform Site Controls (Announcement Banner & Maintenance Mode) strictly Admin-writable
+  const siteControlsPayload = {
+    announcementEnabled: true,
+    announcementText: 'System maintenance alert',
+    announcementType: 'warning',
+    announcementUpdatedAt: new Date().toISOString(),
+    maintenanceTools: ['apk'],
+    maintenanceGroups: [],
+    maintenanceMessage: 'APK analyzer under scheduled upgrade',
+    maintenanceUpdatedAt: new Date().toISOString(),
+    updatedBy: uidA,
+    updatedAt: new Date().toISOString(),
+  };
+  await assert.rejects(() =>
+    setDoc(doc(dbA, 'platform_config', 'site_controls'), siteControlsPayload)
+  );
+  await setDoc(doc(dbB, 'platform_config', 'site_controls'), {
+    ...siteControlsPayload,
+    updatedBy: uidB,
+  });
+  const siteControlsByAnalyst = await getDoc(doc(dbA, 'platform_config', 'site_controls'));
+  assert.equal(siteControlsByAnalyst.exists(), true);
+  assert.equal(siteControlsByAnalyst.data()?.announcementEnabled, true);
+  console.log('[PASS] Server-verified Admin RBAC & platform_config/site_controls confirmed');
 
   await signOut(authA);
   await signOut(authB);

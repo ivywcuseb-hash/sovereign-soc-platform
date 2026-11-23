@@ -174,6 +174,7 @@ async function main() {
     const fsRules = fs.readFileSync(path.resolve('firestore.rules'), 'utf8');
     const stRules = fs.readFileSync(path.resolve('storage.rules'), 'utf8');
     const fbJson = JSON.parse(fs.readFileSync(path.resolve('firebase.json'), 'utf8'));
+    const blueprint = JSON.parse(fs.readFileSync(path.resolve('firebase-blueprint.json'), 'utf8'));
 
     assert.equal(fbJson.firestore?.rules, 'firestore.rules');
     assert.equal(fbJson.storage?.rules, 'storage.rules');
@@ -182,6 +183,14 @@ async function main() {
     assert.ok(fsRules.includes('match /security_events/{eventId}'));
     assert.ok(fsRules.includes("data.role == 'analyst'"));
     assert.equal(fsRules.includes('allow read: if true'), false);
+    assert.ok(fsRules.includes('isValidPlatformSiteControlsConfig'));
+    assert.ok(fsRules.includes("configId == 'site_controls'"));
+    assert.ok(fsRules.includes("match /platform_config/{configId}"));
+    assert.ok(blueprint.entities?.PlatformSiteControls, 'Expected PlatformSiteControls in firebase-blueprint.json');
+    assert.ok(
+      blueprint.firestore?.['/platform_config/site_controls'],
+      'Expected /platform_config/site_controls path in firebase-blueprint.json'
+    );
 
     const listLines = fsRules.split('\n').filter((l) => l.includes('allow list'));
     for (const line of listLines) {
@@ -263,6 +272,23 @@ async function main() {
       headers: { Authorization: 'Bearer fake.forged.jwt123' },
     });
     assert.equal(r4.status, 401);
+
+    const r5 = await fetch(`${baseUrl}/api/site-assistant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'test' }),
+    });
+    assert.equal(r5.status, 401);
+
+    const r6 = await fetch(`${baseUrl}/api/site-assistant`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer fake.forged.jwt123',
+      },
+      body: JSON.stringify({ message: 'test' }),
+    });
+    assert.equal(r6.status, 401);
   });
 
   await runTest('All-API-Validation', 'Validate input checks & malformed payload handling across all API routes', async () => {
@@ -276,6 +302,7 @@ async function main() {
       { path: '/api/analyze-binary', body: {} },
       { path: '/api/live-feeds/briefing', body: { items: [] } },
       { path: '/api/search', body: { query: '' } },
+      { path: '/api/site-assistant', body: { message: '' } },
       { path: '/api/security/client-event', body: { eventType: 'INVALID_TYPE' } },
     ];
 
