@@ -7623,7 +7623,11 @@ function SovereignForensicWorkspace({ onLockSystem }: { onLockSystem: () => void
                           <RefreshCw className="w-3 h-3 animate-spin" /> جاري التسجيل ({update.swScriptUrl})
                         </span>
                       ) : (
-                        <span className="text-amber-400 font-mono text-[11px]">غير مدعوم في هذا المتصفح</span>
+                        <span className="text-amber-400 font-mono text-[11px]">
+                          {typeof window !== 'undefined' && (window.self !== window.top || (import.meta as any).env?.DEV || !('serviceWorker' in navigator))
+                            ? 'وضع المعاينة النشط (يتفعل التثبيت على الرابط المباشر)'
+                            : 'غير مدعوم في هذا المتصفح'}
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center justify-between">
